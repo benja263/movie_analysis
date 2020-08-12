@@ -17,6 +17,8 @@ class ModelParameters:
 
     save_path = attr.ib(default=None)
 
+    model_name = attr.ib(default=None)
+
 
 
 

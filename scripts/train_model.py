@@ -3,6 +3,8 @@ import json
 import pickle
 from collections import defaultdict
 from pathlib import Path
+import time
+
 
 import numpy as np
 import pandas as pd
@@ -15,13 +17,14 @@ from model.model import GenreClassifier
 from model.parameters import ModelParameters
 
 
-def train_model(path, filename, mapping_filename, params):
+def train_model(path, filename, mapping_filename, params, load_model):
     """
 
     :param path:
     :param filename:
     :param mapping_filename:
     :param params:
+    :param load_model:
     :return:
     """
     print('-- Loading Data --')
@@ -47,11 +50,16 @@ def train_model(path, filename, mapping_filename, params):
     tokenizer = BertTokenizer.from_pretrained(params.pre_trained_model_name)
     data_loaders = get_data_loaders(data, mapping, tokenizer, params)
     params.num_labels = len(mapping)
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f'using device: {device}')
     print('-- Training Model -- ')
     model = GenreClassifier(params)
-
+    if load_model:
+        print('-- Loading Model --')
+        model.load_state_dict(torch.load(params.save_path / f'{params.model_name}.pth',
+                                         map_location=torch.device(device)))
     num_labels = len(mapping)
-    training(model, data_loaders, params, num_labels)
+    training(model, data_loaders, params, num_labels, load_model, device)
 
 
 def save_data(path, filename, data):
@@ -88,9 +96,7 @@ def get_data_loaders(data, mapping, tokenizer, params):
     return {'train': train_data_loader, 'validation': val_data_loader, 'test': test_data_loader}
 
 
-def training(model, data_loader, params, num_labels):
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f'using device: {device}')
+def training(model, data_loader, params, num_labels, load_model, device):
     model.to(device)
     optimizer = AdamW(model.parameters(), lr=2e-5, correct_bias=False)
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
@@ -100,14 +106,21 @@ def training(model, data_loader, params, num_labels):
                   'loss_fn': loss_fn}
 
     history = defaultdict(list)
-
+    start_epoch = 1
+    if load_model:
+        with open(params.save_path / f'{params.model_name}_model_history.pkl', 'rb') as f:
+            history = pickle.load(f)
+            start_epoch = history['epoch'][-1]
     best_acc = 0.0
-    for i in range(1, params.n_epochs + 1):
+    start_time = time.time()
+    for i in range(start_epoch, start_epoch + params.n_epochs):
+        epoch_start_time = time.time()
         print(f'Epoch {i}/{params.n_epochs}')
         print('-' * 10)
         tr_acc, tr_loss = train_epoch(**model_info, data_loader=data_loader['train'], num_labels=num_labels)
         val_acc, val_loss = eval_model(model, data_loader['validation'], loss_fn, device, num_labels)
 
+        history['epoch'].append(i)
         history['tr_acc'].append(tr_acc)
         history['tr_loss'].append(tr_loss)
         history['val_acc'].append(val_acc)
@@ -118,15 +131,21 @@ def training(model, data_loader, params, num_labels):
         print('-' * 10)
         if val_acc > best_acc:
             best_acc = val_acc
-            torch.save(model.state_dict(), params.save_path / 'genre_classifier_model_state.pth')
-        with open(params.save_path / 'genre_classifier_model_history.pkl', 'wb') as f:
+            print('-- Saving model --')
+            torch.save(model.state_dict(), params.save_path / f'{params.model_name}.pth')
+        print('-- Saving model history --')
+        with open(params.save_path / f'{params.model_name}_model_history.pkl', 'wb') as f:
             pickle.dump(history, f)
+        print(f'Elapsed epoch time: {passed_time(time.time() - epoch_start_time)}')
+        print(f'Total elapsed time: {passed_time(time.time() - start_time)}')
     test_acc, test_loss = eval_model(model, data_loader['test'], loss_fn, device)
     print(f'test accuracy: {test_acc:.2f}, validation loss: {test_loss:.2f}')
     history['test_acc'].append(test_acc)
     history['test_loss'].append(test_loss)
-    with open(params.local_save_path / 'genre_classifier_model_history.pkl', 'wb') as f:
+    print('-- Saving model history --')
+    with open(params.save_path / f'{params.model_name}_model_history.pkl', 'wb') as f:
         pickle.dump(history, f)
+    print(f'Total training time: {passed_time(time.time() - start_time)}')
 
 
 def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, num_labels):
@@ -159,7 +178,7 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, nu
         num_correct += batch_num_correct
         batch_losses.append(batch_loss.item())
 
-    accuracy = num_correct.double() / num_samples
+    accuracy = num_correct.item() / num_samples
     mean_loss = np.mean(batch_losses)
     return accuracy, mean_loss
 
@@ -191,15 +210,21 @@ def eval_model(model, data_loader, loss_fn, device, num_labels):
 
 
 def epoch_pass(batch, model, loss_fn, device):
+    """
+    Returns number of correct predictions and loss
+    :param batch:
+    :param model:
+    :param loss_fn:
+    :param device:
+    :return:
+    """
     input_ids = batch["input_ids"].to(device)
     attention_mask = batch["attention_mask"].to(device)
     targets = batch["encoded_genres"].to(device)
 
     batch_probs = model(input_ids, attention_mask)
     predictions = binary_labeling(batch_probs, threshold=0.5)
-    batch_loss = loss_fn(predictions, targets)
-    num_correct = torch.sum(torch.eq(predictions, targets))
-    return num_correct, batch_loss
+    return torch.sum(torch.eq(predictions, targets)), loss_fn(predictions, targets)
 
 
 def binary_labeling(p, threshold):
@@ -207,13 +232,25 @@ def binary_labeling(p, threshold):
 
     :param p:
     :param threshold:
-    :param to_detach:
     :return:
     """
     res = p.clone()
-    res[res >= threshold] = 1
-    res[res < threshold] = 0
+    res[p >= threshold] = 1
+    res[p < threshold] = 0
     return res
+
+
+def passed_time(t):
+    """
+
+    :param t:
+    :return:
+    """
+    if t < 60:
+        return f'{t} seconds'
+    if t // 60 < 60:
+        return f'{t // 60} minutes and {passed_time(t % 60)}'
+    return f'{t // 3600} hours {passed_time(t % 3600)}'
 
 
 if __name__ == '__main__':
@@ -227,8 +264,13 @@ if __name__ == '__main__':
     parser.add_argument('-mfn', '--mapping_filename',
                         help='Filename containing mapping of genres to indices (filename ending is also required): example:'
                              ' data_mapping.json', type=str, default='genre_mapping.json')
-    parser.add_argument('-sp', '--save_path', help='Path to directory in which to save results', type=Path
+    parser.add_argument('-sp', '--save_path', help='Path to directory in which to save/load results to/from', type=Path
                         , default=Path.cwd() / 'trained_models')
+    parser.add_argument('-lm', '--load_model',
+                        help='Continue training from trained model', action='store_true')
+    parser.add_argument('-mn', '--model_name',
+                        help='Name to save/load model,'
+                             ' NOTE: .pth ending is added', type=str, default='genre_classifier')
     parser.add_argument('-ptmn', '--pre_trained_model_name',
                         help='name of pre_trained_name', type=str, default='bert-base-cased')
     parser.add_argument('-drp', '--dropout',
@@ -255,5 +297,7 @@ if __name__ == '__main__':
     parameters = ModelParameters(pre_trained_model_name=args.pre_trained_model_name,
                                  max_encoding_length=max(512, args.max_encoding_length), dropout=args.dropout,
                                  batch_size=args.batch_size, n_epochs=args.n_epochs, train_split=args.train_split,
-                                 test_split=args.test_split, random_state=args.random_state, save_path=args.save_path)
-    train_model(path=args.path, filename=args.filename, mapping_filename=args.mapping_filename, params=parameters)
+                                 test_split=args.test_split, random_state=args.random_state, save_path=args.save_path,
+                                 model_name=args.model_name)
+    train_model(path=args.path, filename=args.filename, mapping_filename=args.mapping_filename, params=parameters,
+                load_model=args.load_model)
