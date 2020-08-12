@@ -89,8 +89,8 @@ def get_data_loaders(data, mapping, tokenizer, params):
 
 
 def training(model, data_loader, params, num_labels):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f'using device: {device} ')
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f'using device: {device}')
     model.to(device)
     optimizer = AdamW(model.parameters(), lr=2e-5, correct_bias=False)
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
