@@ -32,10 +32,13 @@ def train_model(path, filename, mapping_filename, params):
     print(f'train data ratio: {params.train_split},'
           f' validation_ratio: {((1 - params.train_split) * params.test_split):.2f}, '
           f'test_ratio: {((1.0 - params.train_split) * (1.0 - params.test_split)):.2f} ')
-    train_data, test_data = train_test_split(data, test_size=params.train_split, shuffle=True,
+    train_data, test_data = train_test_split(data, train_size=params.train_split, shuffle=True,
                                              random_state=params.random_state)
-    val_data, test_data = train_test_split(test_data, test_size=params.test_split, shuffle=True,
+    val_data, test_data = train_test_split(test_data, train_size=params.test_split, shuffle=True,
                                            random_state=params.random_state)
+    print(f'train data has {len(train_data)} movies,'
+          f' validation data has {len(val_data)} movies,'
+          f' test data has {len(test_data)} movies,')
     data = (train_data, val_data, test_data)
     print('-- Saving Data -- ')
     save_data(path, filename, data)
@@ -43,6 +46,7 @@ def train_model(path, filename, mapping_filename, params):
     print('-- Generating Data Loaders -- ')
     tokenizer = BertTokenizer.from_pretrained(params.pre_trained_model_name)
     data_loaders = get_data_loaders(data, mapping, tokenizer, params)
+    params.num_labels = len(mapping)
     print('-- Training Model -- ')
     model = GenreClassifier(params)
 
@@ -185,7 +189,7 @@ def eval_model(model, data_loader, loss_fn, device, num_labels):
     return accuracy, mean_loss
 
 
-def epoch_pass(batch, model, loss_fn, device, to_detach):
+def epoch_pass(batch, model, loss_fn, device):
     input_ids = batch["input_ids"].to(device)
     attention_mask = batch["attention_mask"].to(device)
     targets = batch["encoded_genres"].to(device)
@@ -228,8 +232,6 @@ if __name__ == '__main__':
                         help='name of pre_trained_name', type=str, default='bert-base-cased')
     parser.add_argument('-drp', '--dropout',
                         help='Dropout', type=float, default=0.3)
-    parser.add_argument('-nlbs', '--num_labels',
-                        help='Number of labels', type=int, default=357)
     parser.add_argument('-menln', '--max_encoding_length',
                         help='Max length of encoding tensor -- note 512 is the max allowed number ', type=int, default=512)
     parser.add_argument('-bsz', '--batch_size',
@@ -249,7 +251,7 @@ if __name__ == '__main__':
     print('-- Entered Arguments --')
     for arg in vars(args):
         print(f'- {arg}: {getattr(args, arg)}')
-    parameters = ModelParameters(pre_trained_model_name=args.pre_trained_model_name, num_labels=args.num_labels,
+    parameters = ModelParameters(pre_trained_model_name=args.pre_trained_model_name,
                                  max_encoding_length=max(512, args.max_encoding_length), dropout=args.dropout,
                                  batch_size=args.batch_size, n_epochs=args.n_epochs, train_split=args.train_split,
                                  test_split=args.test_split, random_state=args.random_state, save_path=args.save_path)
