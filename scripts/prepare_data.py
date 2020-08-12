@@ -2,8 +2,8 @@
 
 """
 import argparse
-import json
 import csv
+import json
 from pathlib import Path
 
 import numpy as np
