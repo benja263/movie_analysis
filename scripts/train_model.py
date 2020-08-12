@@ -214,7 +214,7 @@ def binary_labeling(p, threshold):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script for training a model for genre labeling",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-p', '--path', help='Path to directory', type=Path
+    parser.add_argument('-p', '--path', help='Path to data directory', type=Path
                         , default=Path.cwd() / 'data')
     parser.add_argument('-fn', '--filename',
                         help='Filename containing data (filename ending is also required): example:'
@@ -244,6 +244,8 @@ if __name__ == '__main__':
                         help='Random state, seed', type=int, default=42)
 
     args = parser.parse_args()
+    if not args.save_path.exists():
+        args.save_path.mkdir(parents=True)
     print('-- Entered Arguments --')
     for arg in vars(args):
         print(f'- {arg}: {getattr(args, arg)}')
