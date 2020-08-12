@@ -33,7 +33,7 @@ class GenresDataset(Dataset):
 
         return {'plot_summary': plot_summary, 'input_ids': encoding['input_ids'].flatten(),
                 'attention_mask': encoding['attention_mask'].flatten(),
-                'genres': genres, 'encoded_genres': torch.tensor(encoded_genres, dtype=torch.float)}
+                'genres': genres, 'encoded_genres': torch.tensor(encoded_genres, dtype=torch.int)}
 
 
 def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_col, genre_col):

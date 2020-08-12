@@ -223,20 +223,21 @@ def epoch_pass(batch, model, loss_fn, device):
     targets = batch["encoded_genres"].to(device)
 
     batch_probs = model(input_ids, attention_mask)
-    predictions = binary_labeling(batch_probs, threshold=0.5)
+    predictions = binary_labeling(batch_probs, threshold=0.5, device=device)
     return torch.sum(torch.eq(predictions, targets)), loss_fn(predictions, targets)
 
 
-def binary_labeling(p, threshold):
+def binary_labeling(p, threshold, device):
     """
 
     :param p:
     :param threshold:
+    :param device:
     :return:
     """
-    res = p.clone()
+
+    res = torch.zeros(size=p.size, dtype=torch.int, device=device, requires_grad=True)
     res[p >= threshold] = 1
-    res[p < threshold] = 0
     return res
 
 
