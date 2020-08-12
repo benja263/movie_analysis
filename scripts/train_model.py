@@ -1,6 +1,6 @@
 import argparse
-import pickle
 import json
+import pickle
 from collections import defaultdict
 from pathlib import Path
 
@@ -15,7 +15,7 @@ from model.model import GenreClassifier
 from model.parameters import ModelParameters
 
 
-def train_model(path, filename, mapping_filename,params):
+def train_model(path, filename, mapping_filename, params):
     """
 
     :param path:
@@ -76,11 +76,11 @@ def get_data_loaders(data, mapping, tokenizer, params):
     """
     train_data, val_data, test_data = data
     train_data_loader = create_genres_data_loader(train_data, mapping, tokenizer, params.max_encoding_length,
-                                                  params.batch_size, plot_col='plot', genre_col='genres')
+                                                  params.batch_size, plot_col='plot_summary', genre_col='genres')
     val_data_loader = create_genres_data_loader(val_data, mapping, tokenizer, params.max_encoding_length,
-                                                params.batch_size, plot_col='plot', genre_col='genres')
+                                                params.batch_size, plot_col='plot_summary', genre_col='genres')
     test_data_loader = create_genres_data_loader(test_data, mapping, tokenizer, params.max_encoding_length,
-                                                 params.batch_size, plot_col='plot', genre_col='genres')
+                                                 params.batch_size, plot_col='plot_summary', genre_col='genres')
     return {'train': train_data_loader, 'validation': val_data_loader, 'test': test_data_loader}
 
 
@@ -215,13 +215,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script for training a model for genre labeling",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-p', '--path', help='Path to directory', type=Path
-                        , default=Path.cwd()/ 'data')
+                        , default=Path.cwd() / 'data')
     parser.add_argument('-fn', '--filename',
                         help='Filename containing data (filename ending is also required): example:'
-                             ' data.csv', type=str, default='train.csv')
+                             ' data.csv', type=str, default='prepared_movie_data.csv')
     parser.add_argument('-mfn', '--mapping_filename',
                         help='Filename containing mapping of genres to indices (filename ending is also required): example:'
-                             ' data_mapping.json', type=str, default='train_mapping.json')
+                             ' data_mapping.json', type=str, default='genre_mapping.json')
     parser.add_argument('-sp', '--save_path', help='Path to directory in which to save results', type=Path
                         , default=Path.cwd() / 'trained_models')
     parser.add_argument('-ptmn', '--pre_trained_model_name',
