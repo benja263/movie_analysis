@@ -6,6 +6,7 @@ class ModelParameters:
     pre_trained_model_name = attr.ib(default=None)
     dropout = attr.ib(default=None)
     num_labels = attr.ib(default=None)
+    learning_rate = attr.ib(default=None)
 
     batch_size = attr.ib(default=None)
     max_encoding_length = attr.ib(default=None)

@@ -5,7 +5,6 @@ from collections import defaultdict
 from pathlib import Path
 import time
 
-
 import numpy as np
 import pandas as pd
 import torch
@@ -98,7 +97,7 @@ def get_data_loaders(data, mapping, tokenizer, params):
 
 def training(model, data_loader, params, num_labels, load_model, device):
     model.to(device)
-    optimizer = AdamW(model.parameters(), lr=2e-5, correct_bias=False)
+    optimizer = AdamW(model.parameters(), lr=params.learning_rate, correct_bias=False)
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
                                                    num_training_steps=len(data_loader['train']) * params.n_epochs)
     loss_fn = torch.nn.BCEWithLogitsLoss().to(device)
@@ -111,26 +110,37 @@ def training(model, data_loader, params, num_labels, load_model, device):
         with open(params.save_path / f'{params.model_name}_model_history.pkl', 'rb') as f:
             history = pickle.load(f)
             start_epoch = history['epoch'][-1] + 1
-    best_acc = 0.0
+    best_f1 = 0.0
     start_time = time.time()
     for i in range(start_epoch, start_epoch + params.n_epochs):
         epoch_start_time = time.time()
         print(f'Epoch {i}/{start_epoch + params.n_epochs - 1}')
         print('-' * 10)
-        tr_acc, tr_loss = train_epoch(**model_info, data_loader=data_loader['train'], num_labels=num_labels)
-        val_acc, val_loss = eval_model(model, data_loader['validation'], loss_fn, device, num_labels)
+        tr_prec, tr_recall, tr_acc, tr_f1, tr_loss = train_epoch(**model_info, data_loader=data_loader['train'],
+                                                                 num_labels=num_labels)
+        val_prec, val_recall, val_acc, val_f1, val_loss = eval_model(model, data_loader['validation'],
+                                                                     loss_fn, device, num_labels)
 
         history['epoch'].append(i)
         history['tr_acc'].append(tr_acc)
+        history['tr_prec'].append(tr_prec)
+        history['tr_recall'].append(tr_recall)
+        history['tr_f1'].append(tr_f1)
         history['tr_loss'].append(tr_loss)
         history['val_acc'].append(val_acc)
+        history['val_prec'].append(val_prec)
+        history['val_recall'].append(val_recall)
+        history['val_f1'].append(val_f1)
         history['val_loss'].append(val_loss)
-
-        print(f'training accuracy: {tr_acc:.2f}, training loss: {tr_loss:.2f}')
-        print(f'validation accuracy: {val_acc:.2f}, validation loss: {val_loss:.2f}')
+        print('-- Training metrics -- ')
+        print(
+            f'accuracy: {tr_acc:.2f}, precision: {tr_prec:.2f}, recall: {tr_recall}, f1: {tr_f1} training loss: {tr_loss:.2f}')
+        print('-- Validation metrics -- ')
+        print(
+            f'accuracy: {val_acc:.2f}, precision: {val_prec:.2f}, recall: {val_recall}, f1: {val_f1} training loss: {val_loss:.2f}')
         print('-' * 10)
-        if val_acc > best_acc:
-            best_acc = val_acc
+        if val_f1 > best_f1:
+            best_f1 = val_f1
             print('-- Saving model --')
             torch.save(model.state_dict(), params.save_path / f'{params.model_name}.pth')
         print('-- Saving model history --')
@@ -138,9 +148,14 @@ def training(model, data_loader, params, num_labels, load_model, device):
             pickle.dump(history, f)
         print(f'Elapsed epoch time: {passed_time(time.time() - epoch_start_time)}')
         print(f'Total elapsed time: {passed_time(time.time() - start_time)}')
-    test_acc, test_loss = eval_model(model, data_loader['test'], loss_fn, device)
-    print(f'test accuracy: {test_acc:.2f}, validation loss: {test_loss:.2f}')
+    test_prec, test_recall, test_acc, test_f1, test_loss = eval_model(model, data_loader['test'], loss_fn, device)
+    print('-- Test metrics-')
+    print(
+        f'accuracy: {test_acc:.2f}, precision: {test_prec:.2f}, recall: {test_recall}, f1: {test_f1} training loss: {test_loss:.2f}')
     history['test_acc'].append(test_acc)
+    history['test_prec'].append(test_prec)
+    history['test_recall'].append(test_recall)
+    history['test_f1'].append(test_f1)
     history['test_loss'].append(test_loss)
     print('-- Saving model history --')
     with open(params.save_path / f'{params.model_name}_model_history.pkl', 'wb') as f:
@@ -161,26 +176,30 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, nu
     :return:
     """
     model.train(mode=True)
-    num_correct = torch.tensor(0.0)
+    TP, TN, FP, FN = torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
     batch_losses = []
 
     num_samples = len(data_loader) * data_loader.batch_size * num_labels
     for batch in data_loader:
         optimizer.zero_grad()
+        conf_matrix, batch_loss = epoch_pass(batch, model, loss_fn, device)
 
-        batch_num_correct, batch_loss = epoch_pass(batch, model, loss_fn, device)
         batch_loss.backward()
 
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         optimizer.step()
         lr_scheduler.step()
-
-        num_correct += batch_num_correct
+        tp, tn, fp, fn = conf_matrix
+        TP += tp
+        TN += tn
+        FP += fp
+        FN += FN
         batch_losses.append(batch_loss.item())
 
-    accuracy = num_correct.item() / num_samples
+    TP, TN, FP, FN = TP.item() / num_samples, TN.item() / num_samples, FP.item() / num_samples, FN.item() / num_samples
     mean_loss = np.mean(batch_losses)
-    return accuracy, mean_loss
+    precision, recall, accuracy, f1 = metrics(TP, TN, FP, FN)
+    return precision, recall, accuracy, f1, mean_loss
 
 
 def eval_model(model, data_loader, loss_fn, device, num_labels):
@@ -194,19 +213,24 @@ def eval_model(model, data_loader, loss_fn, device, num_labels):
     :return:
     """
     model.eval()
-    num_correct = torch.tensor(0.0)
+    TP, TN, FP, FN = torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
     batch_losses = []
 
     num_samples = len(data_loader) * data_loader.batch_size * num_labels
 
     with torch.no_grad():
         for batch in data_loader:
-            batch_num_correct, batch_loss = epoch_pass(batch, model, loss_fn, device)
+            conf_matrix, batch_loss = epoch_pass(batch, model, loss_fn, device)
             batch_losses.append(batch_loss.item())
-            num_correct += batch_num_correct
-    accuracy = num_correct.double() / num_samples
+            tp, tn, fp, fn = conf_matrix
+            TP += tp
+            TN += tn
+            FP += fp
+            FN += FN
+    TP, TN, FP, FN = TP.item() / num_samples, TN.item() / num_samples, FP.item() / num_samples, FN.item() / num_samples
     mean_loss = np.mean(batch_losses)
-    return accuracy, mean_loss
+    precision, recall, accuracy, f1 = metrics(TP, TN, FP, FN)
+    return precision, recall, accuracy, f1, mean_loss
 
 
 def epoch_pass(batch, model, loss_fn, device):
@@ -224,7 +248,7 @@ def epoch_pass(batch, model, loss_fn, device):
 
     batch_logits = model(input_ids, attention_mask)
     predictions = binary_labeling(batch_logits, threshold=0.5, device=device)
-    return torch.sum(torch.eq(predictions, targets)), loss_fn(batch_logits, targets)
+    return confusion_matrix(predictions, targets), loss_fn(batch_logits, targets)
 
 
 def binary_labeling(p, threshold, device):
@@ -238,6 +262,32 @@ def binary_labeling(p, threshold, device):
     res = torch.zeros(size=tuple(p.size()), dtype=torch.float, device=device, requires_grad=False)
     res[torch.sigmoid(p) >= threshold] = 1
     return res
+
+
+def confusion_matrix(predictions, targets):
+    """
+
+    :param predictions:
+    :param targets:
+    :return:
+    """
+    TP, TN = torch.sum((predictions == 1) & (targets == 1)), torch.sum((predictions == 0) & (targets == 0))
+    FP, FN = torch.sum((predictions == 1) & (targets == 0)), torch.sum((predictions == 0) & (targets == 1))
+    return TP, TN, FP, FN
+
+
+def metrics(TP, TN, FP, FN):
+    """
+
+    :param TP:
+    :param TN:
+    :param FP:
+    :param FN:
+    :return:
+    """
+    precision, recall = TP / (TP + FP), TP / (TP + FN)
+    accuracy, f1 = (TP + TN) / (TP, TN, FP, FN), (2.0 * precision * recall) / (recall + precision)
+    return precision, recall, accuracy, f1
 
 
 def passed_time(t):
@@ -276,7 +326,8 @@ if __name__ == '__main__':
     parser.add_argument('-drp', '--dropout',
                         help='Dropout', type=float, default=0.3)
     parser.add_argument('-menln', '--max_encoding_length',
-                        help='Max length of encoding tensor -- note 512 is the max allowed number ', type=int, default=512)
+                        help='Max length of encoding tensor -- note 512 is the max allowed number ', type=int,
+                        default=512)
     parser.add_argument('-bsz', '--batch_size',
                         help='Batch size', type=int, default=8)
     parser.add_argument('-ne', '--n_epochs',
@@ -287,6 +338,8 @@ if __name__ == '__main__':
                         help='Ratio of validation / test split', type=float, default=0.5)
     parser.add_argument('-rs', '--random_state',
                         help='Random state, seed', type=int, default=42)
+    parser.add_argument('-lr', '--learning_rate',
+                        help='Optimizer learning rate', type=float, default=2e-5)
 
     args = parser.parse_args()
     if not args.save_path.exists():
@@ -298,6 +351,6 @@ if __name__ == '__main__':
                                  max_encoding_length=max(512, args.max_encoding_length), dropout=args.dropout,
                                  batch_size=args.batch_size, n_epochs=args.n_epochs, train_split=args.train_split,
                                  test_split=args.test_split, random_state=args.random_state, save_path=args.save_path,
-                                 model_name=args.model_name)
+                                 model_name=args.model_name, learning_rate=args.learning_rate)
     train_model(path=args.path, filename=args.filename, mapping_filename=args.mapping_filename, params=parameters,
                 load_model=args.load_model)
