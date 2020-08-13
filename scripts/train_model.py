@@ -110,12 +110,12 @@ def training(model, data_loader, params, num_labels, load_model, device):
     if load_model:
         with open(params.save_path / f'{params.model_name}_model_history.pkl', 'rb') as f:
             history = pickle.load(f)
-            start_epoch = history['epoch'][-1]
+            start_epoch = history['epoch'][-1] + 1
     best_acc = 0.0
     start_time = time.time()
     for i in range(start_epoch, start_epoch + params.n_epochs):
         epoch_start_time = time.time()
-        print(f'Epoch {i}/{params.n_epochs}')
+        print(f'Epoch {i}/{start_epoch + params.n_epochs - 1}')
         print('-' * 10)
         tr_acc, tr_loss = train_epoch(**model_info, data_loader=data_loader['train'], num_labels=num_labels)
         val_acc, val_loss = eval_model(model, data_loader['validation'], loss_fn, device, num_labels)
@@ -222,9 +222,9 @@ def epoch_pass(batch, model, loss_fn, device):
     attention_mask = batch["attention_mask"].to(device)
     targets = batch["encoded_genres"].to(device)
 
-    batch_probs = model(input_ids, attention_mask)
-    predictions = binary_labeling(batch_probs, threshold=0.5, device=device)
-    return torch.sum(torch.eq(predictions, targets)), loss_fn(predictions, targets)
+    batch_logits = model(input_ids, attention_mask)
+    predictions = binary_labeling(batch_logits, threshold=0.5, device=device)
+    return torch.sum(torch.eq(predictions, targets)), loss_fn(batch_logits, targets)
 
 
 def binary_labeling(p, threshold, device):
@@ -235,9 +235,8 @@ def binary_labeling(p, threshold, device):
     :param device:
     :return:
     """
-
-    res = torch.zeros(size=p.size, dtype=torch.int, device=device, requires_grad=True)
-    res[p >= threshold] = 1
+    res = torch.zeros(size=tuple(p.size()), dtype=torch.float, device=device, requires_grad=False)
+    res[torch.sigmoid(p) >= threshold] = 1
     return res
 
 
