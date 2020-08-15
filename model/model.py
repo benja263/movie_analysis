@@ -14,6 +14,10 @@ class GenreClassifier(nn.Module):
         output = self.drop(pooled_output)
         return self.out(output)
 
+    def extract_embedding(self, input_ids, attention_mask):
+        _, pooled_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
+        return pooled_output
+
 
 
 

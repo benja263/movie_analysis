@@ -36,7 +36,7 @@ class GenresDataset(Dataset):
                 'genres': genres, 'encoded_genres': torch.tensor(encoded_genres, dtype=torch.float)}
 
 
-def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_col, genre_col):
+def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_col, genre_col, num_workers):
     """
 
     :param df:
@@ -46,12 +46,13 @@ def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_
     :param batch_size:
     :param plot_col:
     :param genre_col:
+    :param num_workers:
     :return:
     """
     df.loc[:, genre_col] = df[genre_col].apply(genre_yaml_to_list)
     dataset = GenresDataset(plot_summaries=df[plot_col].to_numpy(), genres=df[genre_col].to_numpy(), mapping=mapping,
                             tokenizer=tokenizer, max_len=max_len)
-    return DataLoader(dataset, batch_size=batch_size, num_workers=4)
+    return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
 
 
 def encode_ids(data, mapping):

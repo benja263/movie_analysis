@@ -10,6 +10,7 @@ class ModelParameters:
 
     batch_size = attr.ib(default=None)
     max_encoding_length = attr.ib(default=None)
+    num_workers = attr.ib(default=None)
 
     n_epochs = attr.ib(default=None)
     train_split = attr.ib(default=None)

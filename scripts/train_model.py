@@ -28,6 +28,9 @@ def train_model(path, filename, mapping_filename, params, load_model):
     """
     print('-- Loading Data --')
     data = pd.read_csv(path / filename)
+    # debugging = True
+    # if debugging:
+    #     data = data.sample(frac=0.001, replace=False)
     with open(path / mapping_filename, 'r') as json_file:
         mapping = json.load(json_file)
     print('-- Splitting Data --')
@@ -87,11 +90,14 @@ def get_data_loaders(data, mapping, tokenizer, params):
     """
     train_data, val_data, test_data = data
     train_data_loader = create_genres_data_loader(train_data, mapping, tokenizer, params.max_encoding_length,
-                                                  params.batch_size, plot_col='plot_summary', genre_col='genres')
+                                                  params.batch_size, plot_col='plot_summary', genre_col='genres',
+                                                  num_workers=params.num_workers)
     val_data_loader = create_genres_data_loader(val_data, mapping, tokenizer, params.max_encoding_length,
-                                                params.batch_size, plot_col='plot_summary', genre_col='genres')
+                                                params.batch_size, plot_col='plot_summary', genre_col='genres',
+                                                num_workers=params.num_workers)
     test_data_loader = create_genres_data_loader(test_data, mapping, tokenizer, params.max_encoding_length,
-                                                 params.batch_size, plot_col='plot_summary', genre_col='genres')
+                                                 params.batch_size, plot_col='plot_summary', genre_col='genres',
+                                                 num_workers=params.num_workers)
     return {'train': train_data_loader, 'validation': val_data_loader, 'test': test_data_loader}
 
 
@@ -103,14 +109,18 @@ def training(model, data_loader, params, num_labels, load_model, device):
     loss_fn = torch.nn.BCEWithLogitsLoss().to(device)
     model_info = {'model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler, 'device': device,
                   'loss_fn': loss_fn}
-
+    best_f1 = 0.0
     history = defaultdict(list)
+    history['best_f1'].append(best_f1)
     start_epoch = 1
     if load_model:
+        print('-- Continuing model training --')
         with open(params.save_path / f'{params.model_name}_model_history.pkl', 'rb') as f:
             history = pickle.load(f)
             start_epoch = history['epoch'][-1] + 1
-    best_f1 = 0.0
+            best_f1 = history['best_f1'][-1]
+            print(f'Best f1 score: {best_f1}')
+
     start_time = time.time()
     for i in range(start_epoch, start_epoch + params.n_epochs):
         epoch_start_time = time.time()
@@ -134,13 +144,14 @@ def training(model, data_loader, params, num_labels, load_model, device):
         history['val_loss'].append(val_loss)
         print('-- Training metrics -- ')
         print(
-            f'accuracy: {tr_acc:.2f}, precision: {tr_prec:.2f}, recall: {tr_recall}, f1: {tr_f1} training loss: {tr_loss:.2f}')
+            f'accuracy: {tr_acc:.2f}, precision: {tr_prec:.2f}, recall: {tr_recall:.2f}, f1: {tr_f1:.2f} training loss: {tr_loss:.2f}')
         print('-- Validation metrics -- ')
         print(
-            f'accuracy: {val_acc:.2f}, precision: {val_prec:.2f}, recall: {val_recall}, f1: {val_f1} training loss: {val_loss:.2f}')
+            f'accuracy: {val_acc:.2f}, precision: {val_prec:.2f}, recall: {val_recall:.2f}, f1: {val_f1:.2f} training loss: {val_loss:.2f}')
         print('-' * 10)
         if val_f1 > best_f1:
             best_f1 = val_f1
+            history['best_f1'][-1] = best_f1
             print('-- Saving model --')
             torch.save(model.state_dict(), params.save_path / f'{params.model_name}.pth')
         print('-- Saving model history --')
@@ -148,10 +159,11 @@ def training(model, data_loader, params, num_labels, load_model, device):
             pickle.dump(history, f)
         print(f'Elapsed epoch time: {passed_time(time.time() - epoch_start_time)}')
         print(f'Total elapsed time: {passed_time(time.time() - start_time)}')
+        print(f'Best f1 score: {best_f1}')
     test_prec, test_recall, test_acc, test_f1, test_loss = eval_model(model, data_loader['test'], loss_fn, device)
     print('-- Test metrics-')
     print(
-        f'accuracy: {test_acc:.2f}, precision: {test_prec:.2f}, recall: {test_recall}, f1: {test_f1} training loss: {test_loss:.2f}')
+        f'accuracy: {test_acc:.2f}, precision: {test_prec:.2f}, recall: {test_recall:.2f}, f1: {test_f1:.2f} training loss: {test_loss:.2f}')
     history['test_acc'].append(test_acc)
     history['test_prec'].append(test_prec)
     history['test_recall'].append(test_recall)
@@ -176,10 +188,8 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, nu
     :return:
     """
     model.train(mode=True)
-    TP, TN, FP, FN = torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
     batch_losses = []
-
-    num_samples = len(data_loader) * data_loader.batch_size * num_labels
+    batch_precs, batch_recalls, batch_accs, batch_f1s = [], [], [], []
     for batch in data_loader:
         optimizer.zero_grad()
         conf_matrix, batch_loss = epoch_pass(batch, model, loss_fn, device)
@@ -190,16 +200,17 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, nu
         optimizer.step()
         lr_scheduler.step()
         tp, tn, fp, fn = conf_matrix
-        TP += tp
-        TN += tn
-        FP += fp
-        FN += FN
+        precision, recall, accuracy, f1 = metrics(tp.item(), tn.item(), fp.item(), fn.item())
+        batch_precs.append(precision)
+        batch_recalls.append(recall)
+        batch_accs.append(accuracy)
+        batch_f1s.append(f1)
         batch_losses.append(batch_loss.item())
 
-    TP, TN, FP, FN = TP.item() / num_samples, TN.item() / num_samples, FP.item() / num_samples, FN.item() / num_samples
     mean_loss = np.mean(batch_losses)
-    precision, recall, accuracy, f1 = metrics(TP, TN, FP, FN)
-    return precision, recall, accuracy, f1, mean_loss
+    mean_precision, mean_recall, mean_accuray = np.mean(batch_precs), np.mean(batch_recalls), np.mean(batch_accs)
+    mean_f1 = np.mean(batch_f1s)
+    return mean_precision, mean_recall, mean_accuray, mean_f1, mean_loss
 
 
 def eval_model(model, data_loader, loss_fn, device, num_labels):
@@ -213,24 +224,23 @@ def eval_model(model, data_loader, loss_fn, device, num_labels):
     :return:
     """
     model.eval()
-    TP, TN, FP, FN = torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0), torch.tensor(0.0)
     batch_losses = []
-
-    num_samples = len(data_loader) * data_loader.batch_size * num_labels
+    batch_precs, batch_recalls, batch_accs, batch_f1s = [], [], [], []
 
     with torch.no_grad():
         for batch in data_loader:
             conf_matrix, batch_loss = epoch_pass(batch, model, loss_fn, device)
-            batch_losses.append(batch_loss.item())
             tp, tn, fp, fn = conf_matrix
-            TP += tp
-            TN += tn
-            FP += fp
-            FN += FN
-    TP, TN, FP, FN = TP.item() / num_samples, TN.item() / num_samples, FP.item() / num_samples, FN.item() / num_samples
+            precision, recall, accuracy, f1 = metrics(tp.item(), tn.item(), fp.item(), fn.item())
+            batch_precs.append(precision)
+            batch_recalls.append(recall)
+            batch_accs.append(accuracy)
+            batch_f1s.append(f1)
+            batch_losses.append(batch_loss.item())
     mean_loss = np.mean(batch_losses)
-    precision, recall, accuracy, f1 = metrics(TP, TN, FP, FN)
-    return precision, recall, accuracy, f1, mean_loss
+    mean_precision, mean_recall, mean_accuray = np.mean(batch_precs), np.mean(batch_recalls), np.mean(batch_accs)
+    mean_f1 = np.mean(batch_f1s)
+    return mean_precision, mean_recall, mean_accuray, mean_f1, mean_loss
 
 
 def epoch_pass(batch, model, loss_fn, device):
@@ -271,8 +281,10 @@ def confusion_matrix(predictions, targets):
     :param targets:
     :return:
     """
-    TP, TN = torch.sum((predictions == 1) & (targets == 1)), torch.sum((predictions == 0) & (targets == 0))
-    FP, FN = torch.sum((predictions == 1) & (targets == 0)), torch.sum((predictions == 0) & (targets == 1))
+    TP = torch.sum((predictions == 1) & (targets == 1), dtype=torch.float)
+    TN = torch.sum((predictions == 0) & (targets == 0), dtype=torch.float)
+    FP = torch.sum((predictions == 1) & (targets == 0), dtype=torch.float)
+    FN = torch.sum((predictions == 0) & (targets == 1), dtype=torch.float)
     return TP, TN, FP, FN
 
 
@@ -285,8 +297,10 @@ def metrics(TP, TN, FP, FN):
     :param FN:
     :return:
     """
-    precision, recall = TP / (TP + FP), TP / (TP + FN)
-    accuracy, f1 = (TP + TN) / (TP, TN, FP, FN), (2.0 * precision * recall) / (recall + precision)
+    precision = TP / (TP + FP) if (TP + FP) > 0.0 else 0.0
+    recall = TP / (TP + FN) if (TP + FN) > 0.0 else 0.0
+    accuracy = (TP + TN) / (TP + TN + FP + FN)
+    f1 = (2.0 * precision * recall) / (recall + precision) if recall + precision > 0.0 else 0.0
     return precision, recall, accuracy, f1
 
 
@@ -297,7 +311,7 @@ def passed_time(t):
     :return:
     """
     if t < 60:
-        return f'{t} seconds'
+        return f'{t:.2f} seconds'
     if t // 60 < 60:
         return f'{t // 60} minutes and {passed_time(t % 60)}'
     return f'{t // 3600} hours {passed_time(t % 3600)}'
@@ -340,6 +354,8 @@ if __name__ == '__main__':
                         help='Random state, seed', type=int, default=42)
     parser.add_argument('-lr', '--learning_rate',
                         help='Optimizer learning rate', type=float, default=2e-5)
+    parser.add_argument('-nm', '--num_workers',
+                        help='How many subprocesses to use for data loading', type=int, default=4)
 
     args = parser.parse_args()
     if not args.save_path.exists():
@@ -351,6 +367,7 @@ if __name__ == '__main__':
                                  max_encoding_length=max(512, args.max_encoding_length), dropout=args.dropout,
                                  batch_size=args.batch_size, n_epochs=args.n_epochs, train_split=args.train_split,
                                  test_split=args.test_split, random_state=args.random_state, save_path=args.save_path,
-                                 model_name=args.model_name, learning_rate=args.learning_rate)
+                                 model_name=args.model_name, learning_rate=args.learning_rate,
+                                 num_workers=args.num_workers)
     train_model(path=args.path, filename=args.filename, mapping_filename=args.mapping_filename, params=parameters,
                 load_model=args.load_model)
