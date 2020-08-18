@@ -1,8 +1,8 @@
 import json
 import pickle
 
-import numpy as np
 import torch
+import yaml
 
 from model.model import GenreClassifier
 from model.parameters import ModelParameters
@@ -51,14 +51,16 @@ def save_pickle(file, path, filename):
         pickle.dump(file, pickle_file)
 
 
-def cosine_similarity(a, b, is_tensor=False):
-    if is_tensor:
-        cosine = torch.dot(a, b) / (torch.norm(a, p=2)*(torch.norm(b, p=2)))
-        return cosine.item()
-    return np.dot(a, b) / (np.linalg.norm(a) * (np.linalg.norm(b)))
-
-
 def load_model(path, filename, device):
+    """
+    Returns trained model and metadata. The function assumes that they are in the same file path and are named:
+        metadata - <filename>_metadata.pkl
+        model - <filename>.pth
+    :param path:
+    :param filename:
+    :param device:
+    :return:
+    """
     print('-- metadata --')
     metadata = load_pickle(path, f"{filename}_metadata.pkl")
     params = ModelParameters(save_path=path, model_name=metadata['parameters']['model_name'],
@@ -71,3 +73,12 @@ def load_model(path, filename, device):
                                      map_location=torch.device(device)))
     model.to(device)
     return model, metadata
+
+
+def genre_yaml_to_list(x):
+    """
+
+    :param x
+    """
+    x = yaml.load(x, Loader=yaml.BaseLoader)
+    return list(x.values())

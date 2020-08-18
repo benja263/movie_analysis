@@ -1,7 +1,11 @@
+"""
+
+"""
 import numpy as np
 import torch
-import yaml
 from torch.utils.data import Dataset, DataLoader
+
+from utils.helpers import genre_yaml_to_list
 
 
 class GenresDataset(Dataset):
@@ -55,28 +59,20 @@ def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_
     return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)
 
 
-def encode_ids(data, mapping):
+def encode_ids(genres_lists, mapping):
     """
-
-    :param data:
-    :param mapping:
+    Returns 1-hot encodings of genres
+    :param list(str) genres_lists: list of genres
+    :param dict mapping: mapping between genre to index
     :return:
     """
     nb_genres = len(mapping)
     encoding_list = []
-    for genre_list in data:
+    for genres_list in genres_lists:
         encoding = np.zeros(nb_genres, dtype=int)
-        for genre in genre_list:
+        for genre in genres_list:
             encoding[mapping[genre]] = 1
         encoding_list.append(encoding)
     return encoding_list
 
-
-def genre_yaml_to_list(x):
-    """
-
-    :param x
-    """
-    x = yaml.load(x, Loader=yaml.BaseLoader)
-    return list(x.values())
 

@@ -9,7 +9,7 @@ import torch
 
 from model.model import GenreClassifier
 from model.parameters import ModelParameters
-from movie_classification.movie_classifier import MovieClassifier
+from movie_classifier import MovieClassifier
 
 
 def predict_genres(path, filename, plot_summary):
