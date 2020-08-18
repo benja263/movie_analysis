@@ -27,11 +27,14 @@ def prepare_data(path):
     print('-- Saving --')
     save_data_name = path / 'prepared_movie_data.csv'
     save_mapping_name = path / 'genre_mapping.json'
+    save_plot_summaries_name = path / 'plot_summaries.json'
     print(f'Saving movie data as csv as : {save_data_name}')
     movie_data.to_csv(save_data_name)
     print(f'Saving movie genre id mapping as: {save_mapping_name}')
     with open(save_mapping_name, 'w') as json_file:
         json.dump(genre_mapping, json_file)
+    print(f'Saving movie plots as: {save_plot_summaries_name}')
+    plot_summaries_to_json(path, movie_data)
     print('-' * 10)
     print('-- Saved --')
 
@@ -118,6 +121,18 @@ def print_metadata(df, mapping):
         print(temp.loc[temp.genre_count == n, 'genres'].value_counts().head(n=5).to_string())
     print('-' * 10)
 
+def plot_summaries_to_json(path, data):
+    """
+
+    :param path:
+    :param data:
+    :return:
+    """
+    movie_json = dict()
+    for index, row in data.iterrows():
+        movie_json[index] = row['plot_summary']
+    with open(path / 'plot_summaries.json', 'w') as f:
+        json.dump(movie_json, f)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script for preparing data",

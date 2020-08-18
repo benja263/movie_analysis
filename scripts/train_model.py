@@ -1,10 +1,11 @@
 import argparse
 import json
 import pickle
+import time
 from collections import defaultdict
 from pathlib import Path
-import time
 
+import attr
 import numpy as np
 import pandas as pd
 import torch
@@ -51,17 +52,13 @@ def train_model(path, filename, mapping_filename, params, load_model):
     print('-- Generating Data Loaders -- ')
     tokenizer = BertTokenizer.from_pretrained(params.pre_trained_model_name)
     data_loaders = get_data_loaders(data, mapping, tokenizer, params)
-    params.num_labels = len(mapping)
-    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-    print(f'using device: {device}')
     print('-- Training Model -- ')
+    params.num_labels = len(mapping)
     model = GenreClassifier(params)
-    if load_model:
-        print('-- Loading Model --')
-        model.load_state_dict(torch.load(params.save_path / f'{params.model_name}.pth',
-                                         map_location=torch.device(device)))
-    num_labels = len(mapping)
-    training(model, data_loaders, params, num_labels, load_model, device)
+    metadata = {'tokenizer': tokenizer,
+                'genre_mapping': mapping,
+                'parameters':  attr.asdict(params)}
+    training(model, data_loaders, params, load_model, metadata)
 
 
 def save_data(path, filename, data):
@@ -101,7 +98,9 @@ def get_data_loaders(data, mapping, tokenizer, params):
     return {'train': train_data_loader, 'validation': val_data_loader, 'test': test_data_loader}
 
 
-def training(model, data_loader, params, num_labels, load_model, device):
+def training(model, data_loader, params, load_model, metadata):
+    device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+    print(f'using device: {device}')
     model.to(device)
     optimizer = AdamW(model.parameters(), lr=params.learning_rate, correct_bias=False)
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
@@ -110,38 +109,28 @@ def training(model, data_loader, params, num_labels, load_model, device):
     model_info = {'model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler, 'device': device,
                   'loss_fn': loss_fn}
     best_f1 = 0.0
-    history = defaultdict(list)
-    history['best_f1'].append(best_f1)
+    metadata['history'] = defaultdict(list)
+    metadata['history']['best_f1'].append(best_f1)
     start_epoch = 1
-    if load_model:
-        print('-- Continuing model training --')
-        with open(params.save_path / f'{params.model_name}_model_history.pkl', 'rb') as f:
-            history = pickle.load(f)
-            start_epoch = history['epoch'][-1] + 1
-            best_f1 = history['best_f1'][-1]
-            print(f'Best f1 score: {best_f1}')
 
+    if load_model:
+        model, metadata = load_trained_model(model, params, device)
+        start_epoch = metadata['history']['epoch'][-1] + 1
+        best_f1 = metadata['history']['best_f1'][-1]
+        print(f'Best f1 score: {best_f1}')
     start_time = time.time()
     for i in range(start_epoch, start_epoch + params.n_epochs):
         epoch_start_time = time.time()
-        print(f'Epoch {i}/{start_epoch + params.n_epochs - 1}')
+        print(f'Epoch {i}/{start_epoch + params.n_epochs}')
         print('-' * 10)
-        tr_prec, tr_recall, tr_acc, tr_f1, tr_loss = train_epoch(**model_info, data_loader=data_loader['train'],
-                                                                 num_labels=num_labels)
+        tr_prec, tr_recall, tr_acc, tr_f1, tr_loss = train_epoch(**model_info, data_loader=data_loader['train'])
         val_prec, val_recall, val_acc, val_f1, val_loss = eval_model(model, data_loader['validation'],
-                                                                     loss_fn, device, num_labels)
-
-        history['epoch'].append(i)
-        history['tr_acc'].append(tr_acc)
-        history['tr_prec'].append(tr_prec)
-        history['tr_recall'].append(tr_recall)
-        history['tr_f1'].append(tr_f1)
-        history['tr_loss'].append(tr_loss)
-        history['val_acc'].append(val_acc)
-        history['val_prec'].append(val_prec)
-        history['val_recall'].append(val_recall)
-        history['val_f1'].append(val_f1)
-        history['val_loss'].append(val_loss)
+                                                                     loss_fn, device)
+        metadata['history']['epoch'].append(i)
+        metadata['history'] = append_history(metadata['history'], accuracy=tr_acc, precision=tr_prec,
+                                             recall=tr_recall, f1=tr_f1, loss=tr_loss, metric_type='tr')
+        metadata['history'] = append_history(metadata['history'], accuracy=val_acc, precision=val_prec,
+                                             recall=val_recall, f1=val_f1, loss=val_loss, metric_type='val')
         print('-- Training metrics -- ')
         print(
             f'accuracy: {tr_acc:.2f}, precision: {tr_prec:.2f}, recall: {tr_recall:.2f}, f1: {tr_f1:.2f} training loss: {tr_loss:.2f}')
@@ -151,12 +140,12 @@ def training(model, data_loader, params, num_labels, load_model, device):
         print('-' * 10)
         if val_f1 > best_f1:
             best_f1 = val_f1
-            history['best_f1'][-1] = best_f1
+            metadata['history']['best_f1'][-1] = best_f1
             print('-- Saving model --')
             torch.save(model.state_dict(), params.save_path / f'{params.model_name}.pth')
         print('-- Saving model history --')
-        with open(params.save_path / f'{params.model_name}_model_history.pkl', 'wb') as f:
-            pickle.dump(history, f)
+        with open(params.save_path / f'{params.model_name}_metadata.pkl', 'wb') as f:
+            pickle.dump(metadata, f)
         print(f'Elapsed epoch time: {passed_time(time.time() - epoch_start_time)}')
         print(f'Total elapsed time: {passed_time(time.time() - start_time)}')
         print(f'Best f1 score: {best_f1}')
@@ -164,18 +153,25 @@ def training(model, data_loader, params, num_labels, load_model, device):
     print('-- Test metrics-')
     print(
         f'accuracy: {test_acc:.2f}, precision: {test_prec:.2f}, recall: {test_recall:.2f}, f1: {test_f1:.2f} training loss: {test_loss:.2f}')
-    history['test_acc'].append(test_acc)
-    history['test_prec'].append(test_prec)
-    history['test_recall'].append(test_recall)
-    history['test_f1'].append(test_f1)
-    history['test_loss'].append(test_loss)
+    metadata['history'] = append_history(metadata['history'], accuracy=test_acc, precision=test_prec,
+                                         recall=test_recall, f1=test_f1, loss=test_loss, metric_type='test')
     print('-- Saving model history --')
-    with open(params.save_path / f'{params.model_name}_model_history.pkl', 'wb') as f:
-        pickle.dump(history, f)
+    with open(params.save_path / f'{params.model_name}_metadata.pkl', 'wb') as f:
+        pickle.dump(metadata, f)
     print(f'Total training time: {passed_time(time.time() - start_time)}')
 
 
-def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, num_labels):
+def load_trained_model(model, params, device):
+    print('-- Loading Model --')
+    model.load_state_dict(torch.load(params.save_path / f'{params.model_name}.pth',
+                                     map_location=torch.device(device)))
+    print('-- Continuing model training --')
+    with open(params.save_path / f'{params.model_name}_metadata.pkl', 'rb') as f:
+        metadata = pickle.load(f)
+    return model, metadata
+
+
+def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler):
     """
 
     :param model:
@@ -213,7 +209,7 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler, nu
     return mean_precision, mean_recall, mean_accuray, mean_f1, mean_loss
 
 
-def eval_model(model, data_loader, loss_fn, device, num_labels):
+def eval_model(model, data_loader, loss_fn, device):
     """
 
     :param model:
@@ -302,6 +298,15 @@ def metrics(TP, TN, FP, FN):
     accuracy = (TP + TN) / (TP + TN + FP + FN)
     f1 = (2.0 * precision * recall) / (recall + precision) if recall + precision > 0.0 else 0.0
     return precision, recall, accuracy, f1
+
+
+def append_history(history_dict, accuracy, precision, recall, f1, loss, metric_type):
+    history_dict[f'{metric_type}_acc'].append(accuracy)
+    history_dict[f'{metric_type}_prec'].append(precision)
+    history_dict[f'{metric_type}_recall'].append(recall)
+    history_dict[f'{metric_type}_f1'].append(f1)
+    history_dict[f'{metric_type}_loss'].append(loss)
+    return history_dict
 
 
 def passed_time(t):
