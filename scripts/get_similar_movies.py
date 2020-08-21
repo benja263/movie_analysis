@@ -7,7 +7,7 @@ from pathlib import Path
 import torch
 
 from movie_classifier import MovieClassifier
-from utils.helpers import load_json, load_model
+from utils.serialization import load_json, load_model
 
 
 def get_similar_movies(model_path, data_path, model_filename, movie_name, N, similarity_type='cosine'):

@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from model.model import GenreClassifier
+from model.model import MultiGenreLabeler
 from model.parameters import ModelParameters
 from movie_classifier import MovieClassifier
 
@@ -24,7 +24,7 @@ def predict_genres(path, filename, plot_summary):
         metadata = pickle.load(f)
 
     params = ModelParameters(**metadata['parameters'])
-    model = GenreClassifier(params)
+    model = MultiGenreLabeler(params)
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     movie_classifier = MovieClassifier(model, metadata, device)
     prediction = movie_classifier.predict_genre_by_plot(plot_summary)

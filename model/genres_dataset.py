@@ -1,11 +1,11 @@
 """
-
+Module for converting movie information data from csv to pytorch Dataset suitable for training a pytorch model
 """
 import numpy as np
 import torch
 from torch.utils.data import Dataset, DataLoader
 
-from utils.helpers import genre_yaml_to_list
+from utils.helpers import list_from_yaml
 
 
 class GenresDataset(Dataset):
@@ -53,7 +53,7 @@ def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_
     :param num_workers:
     :return:
     """
-    df.loc[:, genre_col] = df[genre_col].apply(genre_yaml_to_list)
+    df.loc[:, genre_col] = df[genre_col].apply(list_from_yaml)
     dataset = GenresDataset(plot_summaries=df[plot_col].to_numpy(), genres=df[genre_col].to_numpy(), mapping=mapping,
                             tokenizer=tokenizer, max_len=max_len)
     return DataLoader(dataset, batch_size=batch_size, num_workers=num_workers)

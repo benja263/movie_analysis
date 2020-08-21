@@ -1,84 +1,91 @@
-import json
-import pickle
+import re
 
-import torch
+import numpy as np
 import yaml
-
-from model.model import GenreClassifier
-from model.parameters import ModelParameters
 
 
 def A_minus_intersection(A, B):
     """
-    Returns all values in A minus intersection(A, B)
-    :param A:
-    :param B:
+    Returns set containing all values in A minus intersection(A, B)
+    :param set A:
+    :param set B:
     :return:
     """
     return A - A.intersection(B)
 
 
-def load_json(path, filename):
-    try:
-        with open(path / filename, 'r') as json_file:
-            data = json.load(json_file)
-        print(f'Loaded file: {filename} successfully')
-        return data
-    except FileNotFoundError:
-        print(f'File: {filename} not found')
-        return dict()
-
-
-def load_pickle(path, filename):
-    try:
-        with open(path / filename, 'rb') as pickle_file:
-            data = pickle.load(pickle_file)
-        print(f'Loaded file: {filename} successfully')
-        return data
-    except FileNotFoundError:
-        print(f'File: {filename} not found')
-
-
-def save_json(file, path, filename):
-    print(f'saving {filename} to: {path}')
-    with open(path / filename, 'w') as json_file:
-        json.dump(file, json_file)
-
-
-def save_pickle(file, path, filename):
-    print(f'saving {filename} to: {path}')
-    with open(path / filename, 'wb') as pickle_file:
-        pickle.dump(file, pickle_file)
-
-
-def load_model(path, filename, device):
+def passed_time(t):
     """
-    Returns trained model and metadata. The function assumes that they are in the same file path and are named:
-        metadata - <filename>_metadata.pkl
-        model - <filename>.pth
-    :param path:
-    :param filename:
-    :param device:
+
+    :param t:
     :return:
     """
-    print('-- metadata --')
-    metadata = load_pickle(path, f"{filename}_metadata.pkl")
-    params = ModelParameters(save_path=path, model_name=metadata['parameters']['model_name'],
-                             num_labels=len(metadata['genre_mapping']),
-                             pre_trained_model_name=metadata['parameters']['pre_trained_model_name'],
-                             dropout=0.3)
-    print('-- model --')
-    model = GenreClassifier(params)
-    model.load_state_dict(torch.load(path / f"{metadata['parameters']['model_name']}.pth",
-                                     map_location=torch.device(device)))
-    model.to(device)
-    return model, metadata
+    if t < 60:
+        return f'{t:.2f} seconds'
+    if t // 60 < 60:
+        return f'{t // 60} minutes and {passed_time(t % 60)}'
+    return f'{t // 3600} hours {passed_time(t % 3600)}'
 
 
-def genre_yaml_to_list(x):
+def save_data(path, filename, data):
     """
 
-    :param x
+    :param path:
+    :param filename:
+    :param data:
+    :return:
     """
-    x = yaml.load(x, Loader=yaml.BaseLoader)
-    return list(x.values())
+    train_data, val_data, test_data = data
+    save_name = path / filename.split('.')[0]
+    train_data.to_csv(f'{save_name}_train_set.csv')
+    val_data.to_csv(f'{save_name}_val_set.csv')
+    test_data.to_csv(f'{save_name}_test_set.csv')
+
+
+def append_history(history_dict, accuracy, precision, recall, f1, loss, metric_type):
+    history_dict[f'{metric_type}_acc'].append(accuracy)
+    history_dict[f'{metric_type}_prec'].append(precision)
+    history_dict[f'{metric_type}_recall'].append(recall)
+    history_dict[f'{metric_type}_f1'].append(f1)
+    history_dict[f'{metric_type}_loss'].append(loss)
+    return history_dict
+
+
+def ensure_ending(filename):
+    if '.' in filename:
+        return True
+    return False
+
+
+def print_metrics(metrics):
+    for metric, metric_value in metrics.items():
+        print(f"{metric}: {metric_value:.5f}", end=' ')
+    print('')
+
+
+def clean_plot_summary(string):
+    """
+
+    :param row:
+    :return:
+    """
+    try:
+        # remove '{{word}}' or '{{text>'
+        x = re.sub(r'\s*{{.+?(\}{2}|\>)\s?', '', str(string))
+        # remove links
+        x = re.sub(r'http(s?)://\S*\s*', '', x)
+        # remove punctuation
+        x = re.sub(r'[\?\.\,\;\:\"\(\)\{\}\[\]\\\/]', ' ', x)
+        # remove double space
+        x = re.sub(r'\s+', ' ', x)
+        # remove \' that is not in middle of a word)
+        x = re.sub(r'\'(\w+)\'', r'\1', x)
+        if not x:
+            return np.nan
+        return x
+    except:
+        return np.nan
+
+
+def list_from_yaml(list_representation):
+    return yaml.load(list_representation, Loader=yaml.BaseLoader)

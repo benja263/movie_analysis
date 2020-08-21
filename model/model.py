@@ -1,20 +1,36 @@
+"""
+Module for multi-label genre classification by training a neural net model that has an
+ added logit output layer to a pretrained BERT model
+"""
 from torch import nn
 from transformers import BertModel
 
 
-class GenreClassifier(nn.Module):
+class MultiGenreLabeler(nn.Module):
     def __init__(self, params):
-        super(GenreClassifier, self).__init__()
+        super(MultiGenreLabeler, self).__init__()
         self.bert = BertModel.from_pretrained(params.pre_trained_model_name)
         self.drop = nn.Dropout(p=params.dropout)
         self.out = nn.Linear(self.bert.config.hidden_size, params.num_labels)
 
     def forward(self, input_ids, attention_mask):
+        """
+        Returns logit of genres
+        :param torch.tensor input_ids:
+        :param torch.tensor attention_mask: 1 for text-token, 0 for padded-token
+        :return:
+        """
         _, pooled_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         output = self.drop(pooled_output)
         return self.out(output)
 
     def extract_embedding(self, input_ids, attention_mask):
+        """
+        Returns trained embeddings represented by the first token of last hidden layer of BERT
+        :param torch.tensor input_ids:
+        :param torch.tensor attention_mask: 1 for text-token, 0 for padded-token
+        :return:
+        """
         _, pooled_output = self.bert(input_ids=input_ids, attention_mask=attention_mask)
         return pooled_output
 

@@ -4,7 +4,8 @@ from pathlib import Path
 
 import torch
 
-from utils.helpers import A_minus_intersection, load_json, save_json, load_model
+from utils.helpers import A_minus_intersection
+from utils.serialization import load_json, save_json, load_model
 
 
 def get_embeddings(model_path, data_path, model_filename):
