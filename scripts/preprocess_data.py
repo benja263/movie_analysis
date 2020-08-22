@@ -24,8 +24,6 @@ def preprocess_data(path):
     'movie_name', 'movie_genres', 'movie_plot'.
     Genres are converted to indices and are stored in a genre to index mapping as a json file
      'genre_mapping.json'.
-
-
     :param path:
     :return:
     """
@@ -124,15 +122,15 @@ def print_metadata(df, mapping):
           f"std: {genre_stats['std']:.2f}, median: {genre_stats['50%']:.0f},  max: {genre_stats['max']:.0f}")
     print('-' * 10)
 
-def plot_summaries_to_json(path, data):
+def plot_summaries_to_json(path, df):
     """
     Save plot summaries as json
-    :param path:
-    :param data:
+    :param Path path: output path
+    :param pd.DataFrame df: dataframe containing plot summaries
     :return:
     """
     movie_json = dict()
-    for index, row in data.iterrows():
+    for index, row in df.iterrows():
         movie_json[index] = row['plot_summary']
     save_json(movie_json, path, filename='plot_summaries')
 

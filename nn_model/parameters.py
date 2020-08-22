@@ -1,5 +1,5 @@
 """
-Parameters for data preparation and model training
+Parameters for data preparation and nn_model training
 """
 import attr
 
@@ -8,7 +8,7 @@ import attr
 class ModelParameters:
     """
     Model Parameters
-    - str pre_trained_model_name: name of pre_trained bert model
+    - str pre_trained_model_name: name of pre_trained bert nn_model
     - float dropout: dropout ratio
     - int num_labels: number of unique possible genres
     - float learning_rate: step size at each iteration while moving toward a minimum of a loss function.

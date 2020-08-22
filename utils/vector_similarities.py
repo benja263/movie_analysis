@@ -1,3 +1,6 @@
+"""
+Module for calculating vector similarities
+"""
 import numpy as np
 import torch
 

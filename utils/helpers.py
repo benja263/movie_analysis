@@ -1,3 +1,6 @@
+"""
+Module containing helper functions
+"""
 import re
 
 import numpy as np
@@ -16,8 +19,8 @@ def A_minus_intersection(A, B):
 
 def passed_time(t):
     """
-
-    :param t:
+    Return string representing passed time in seconds/minutes/hours depending on the number of seconds passed
+    :param float t: time in seconds
     :return:
     """
     if t < 60:
@@ -29,10 +32,10 @@ def passed_time(t):
 
 def save_data(path, filename, data):
     """
-
-    :param path:
-    :param filename:
-    :param data:
+    save to local training/validation/test pd.Dataframes as csv
+    :param Path path:
+    :param str filename:
+    :param tuple(pd.DataFrame) data:
     :return:
     """
     train_data, val_data, test_data = data
@@ -42,36 +45,26 @@ def save_data(path, filename, data):
     test_data.to_csv(f'{save_name}_test_set.csv')
 
 
-def append_history(history_dict, accuracy, precision, recall, f1, loss, metric_type):
-    history_dict[f'{metric_type}_acc'].append(accuracy)
-    history_dict[f'{metric_type}_prec'].append(precision)
-    history_dict[f'{metric_type}_recall'].append(recall)
-    history_dict[f'{metric_type}_f1'].append(f1)
-    history_dict[f'{metric_type}_loss'].append(loss)
-    return history_dict
-
-
 def ensure_ending(filename):
+    """
+    Returns True if a filename has a file extension identifier
+    :param str filename:
+    :return:
+    """
     if '.' in filename:
         return True
     return False
 
 
-def print_metrics(metrics):
-    for metric, metric_value in metrics.items():
-        print(f"{metric}: {metric_value:.5f}", end=' ')
-    print('')
-
-
-def clean_plot_summary(string):
+def clean_plot_summary(plot_summary):
     """
-
-    :param row:
+    Returns a cleaned plot summary
+    :param str plot_summary:
     :return:
     """
     try:
         # remove '{{word}}' or '{{text>'
-        x = re.sub(r'\s*{{.+?(\}{2}|\>)\s?', '', str(string))
+        x = re.sub(r'\s*{{.+?(\}{2}|\>)\s?', '', str(plot_summary))
         # remove links
         x = re.sub(r'http(s?)://\S*\s*', '', x)
         # remove punctuation

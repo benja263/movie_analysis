@@ -1,5 +1,5 @@
 """
-Module for training a neural network
+Module for training a neural network model
 """
 import argparse
 import time
@@ -12,29 +12,29 @@ import torch
 from sklearn.model_selection import train_test_split
 from transformers import AdamW, get_linear_schedule_with_warmup, BertTokenizer
 
-from model.genres_dataset import create_genres_data_loader
-from model.model import MultiGenreLabeler
-from model.parameters import ModelParameters
-from utils.helpers import passed_time, save_data, append_history, print_metrics
+from nn_model.genres_dataset import create_genres_data_loader
+from nn_model.model import MultiGenreLabeler
+from nn_model.parameters import ModelParameters
+from utils.helpers import passed_time, save_data
 from utils.serialization import load_json, save_pickle, save_model, load_model
-from utils.metrics import binary_labeling, confusion_matrix, classifcation_metrics
+from utils.metrics import confusion_matrix, classifcation_metrics
 
 
 def train_model(path, output_dir, filename, params, continue_training):
     """
 
-    :param path:
-    :param filename:
-    :param params:
-    :param continue_training:
+    :param Path path: data path
+    :param str filename: model name
+    :param ModelParameters params:
+    :param bool continue_training: continue training a model or start from scratch
     :return:
     """
     print('-- Loading Data --')
     data = pd.read_csv(path / 'prepared_movie_data.csv')
-    debugging = True
-    if debugging:
-        data = data.sample(frac=0.0005, replace=False)
-        params.num_workers = 0
+    # debugging = True
+    # if debugging:
+    #     data = data.sample(frac=0.0005, replace=False)
+    #     params.num_workers = 0
     mapping = load_json(path, 'genre_mapping.json')
     print('-- Splitting Data --')
     print(f'train data ratio: {params.train_split},'
@@ -65,11 +65,11 @@ def train_model(path, output_dir, filename, params, continue_training):
 
 def get_data_loaders(data, mapping, tokenizer, params):
     """
-
-    :param data:
-    :param mapping:
-    :param tokenizer:
-    :param params:
+    Return Training/Validation/Test data loaders
+    :param tuple(pd.DataFrame) data: train, validation and test data
+    :param dict mapping: genre to index mapping
+    :param BertTokenizer tokenizer: pre-trained bert tokenizer
+    :param ModelParameters params:
     :return:
     """
     train_data, val_data, test_data = data
@@ -88,12 +88,12 @@ def get_data_loaders(data, mapping, tokenizer, params):
 def training(filename, output_dir, data_loader, params, continue_training, metadata):
     """
 
-    :param filename:
-    :param output_dir:
-    :param data_loader:
-    :param params:
-    :param continue_training:
-    :param metadata:
+    :param str filename: model name
+    :param Path output_dir:
+    :param DataLoader data_loader: pytorch DataLoader
+    :param ModelParameters params:
+    :param bool continue_training: continue training a model or start from scratch
+    :param dict metadata: model metadata
     :return:
     """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -109,7 +109,7 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
     best_f1 = max(metadata['history']['val_f1']) if continue_training else 0.0
     print(f'Continuing training: best f1 score: {best_f1:.5f}') if continue_training else print('Starting training')
 
-    model_info = {'model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler, 'device': device,
+    model_info = {'nn_model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler, 'device': device,
                   'loss_fn': loss_fn}
     start_time = time.time()
     for i in range(start_epoch, start_epoch + params.n_epochs):
@@ -125,9 +125,9 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
         print('-' * 10)
         if val_metrics['f1'] > best_f1:
             best_f1 = val_metrics['f1']
-            print('-- Saving model --')
+            print('-- Saving nn_model --')
             save_model(model, output_dir, filename)
-        print('-- Saving model history --')
+        print('-- Saving nn_model history --')
         metadata['history']['epoch'].append(i)
         metadata['history'] = append_history(metadata['history'], **tr_metrics, metric_type='tr')
         metadata['history'] = append_history(metadata['history'], **val_metrics, metric_type='val')
@@ -139,17 +139,17 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
     print('-- Test metrics-')
     print_metrics(test_metrics)
     metadata['history'] = append_history(metadata['history'], **test_metrics, metric_type='test')
-    print('-- Saving model history --')
+    print('-- Saving nn_model history --')
     save_pickle(metadata, output_dir, f'{filename}_metadata')
     print(f'Total training time: {passed_time(time.time() - start_time)}')
 
 
 def initialize_model(metadata, params, device):
     """
-
-    :param metadata:
-    :param params:
-    :param device:
+    Return model
+    :param dict metadata: model metadata
+    :param ModelParameters params:
+    :param str device:
     :return:
     """
     model = MultiGenreLabeler(params)
@@ -160,13 +160,13 @@ def initialize_model(metadata, params, device):
 
 def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler):
     """
-
-    :param model:
-    :param data_loader:
-    :param device:
+    Train model for 1 epoch and return dictionary with the average training metric values
+    :param nn.Module model:
+    :param DataLoader data_loader:
+    :param str device:
     :param optimizer:
-    :param loss_fn:
-    :param lr_scheduler:
+    :param loss_fn: loss function
+    :param lr_scheduler: schedule of linear decrease in learning rate
     :return:
     """
     model.train(mode=True)
@@ -193,12 +193,12 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler):
 
 def eval_model(model, data_loader, loss_fn, device):
     """
-
-    :param model:
-    :param data_loader:
-    :param loss_fn:
-    :param device:
-    :param num_labels:
+    Evaluate model on data and return dictionary with the average metric values
+    :param nn.Module model:
+    :param DataLoader data_loader:
+    :param str device:
+    :param loss_fn: loss function
+    :param str device:
     :return:
     """
     model.eval()
@@ -219,11 +219,11 @@ def eval_model(model, data_loader, loss_fn, device):
 
 def epoch_pass(batch, model, loss_fn, device):
     """
-    Returns number of correct predictions and loss
-    :param batch:
-    :param model:
-    :param loss_fn:
-    :param device:
+    Returns confusion matrix and loss between the predicted output and target output
+    :param DataLoader batch:
+    :param nn_Module model:
+    :param loss_fn: loss function
+    :param str device:
     :return:
     """
     input_ids = batch["input_ids"].to(device)
@@ -236,16 +236,16 @@ def epoch_pass(batch, model, loss_fn, device):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Script for training a model for genre labeling",
+    parser = argparse.ArgumentParser(description="Script for training a nn_model for genre labeling",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-p', '--path', help='Path to data directory', type=Path
                         , default=Path.cwd() / 'data')
     parser.add_argument('-o', '--output_dir', help='Path to directory in which to save/load results to/from', type=Path
                         , default=Path.cwd() / 'trained_models')
     parser.add_argument('-ct', '--continue_training',
-                        help='Continue training from trained model', action='store_true')
+                        help='Continue training from trained nn_model', action='store_true')
     parser.add_argument('-fn', '--filename',
-                        help='Name to save/load model,'
+                        help='Name to save/load nn_model,'
                              ' NOTE: .pth ending is added', type=str, default='genre_classifier')
     parser.add_argument('-ptmn', '--pre_trained_model_name',
                         help='name of pre_trained_name', type=str, default='bert-base-cased')
@@ -284,3 +284,46 @@ if __name__ == '__main__':
     train_model(path=args.path, filename=args.filename, params=parameters,
                 continue_training=args.continue_training, output_dir=args.output_dir)
 
+
+def append_history(history_dict, accuracy, precision, recall, f1, loss, metric_type):
+    """
+    Return training history dictionary with appended metrics
+    :param dict history_dict:
+    :param float accuracy:
+    :param float precision:
+    :param float recall:
+    :param float f1:
+    :param float loss:
+    :param str metric_type: 'tr', 'val', 'test' representing training/validation or test
+    :return:
+    """
+    history_dict[f'{metric_type}_acc'].append(accuracy)
+    history_dict[f'{metric_type}_prec'].append(precision)
+    history_dict[f'{metric_type}_recall'].append(recall)
+    history_dict[f'{metric_type}_f1'].append(f1)
+    history_dict[f'{metric_type}_loss'].append(loss)
+    return history_dict
+
+
+def print_metrics(metrics):
+    """
+    Print values of metrics contained in dictionary of metrics
+    :param dict metrics:
+    :return:
+    """
+    for metric, metric_value in metrics.items():
+        print(f"{metric}: {metric_value:.5f}", end=' ')
+    print('')
+
+
+def binary_labeling(logit, threshold, device):
+    """
+    Returns one hot encoding of class labels by evaluating the probability of each class individually
+    :param torch.tensor logit:
+    :param float threshold: probability threshold for assigning a given class label
+    :param str device:
+    :return:
+    """
+    res = torch.zeros(size=tuple(logit.size()), dtype=torch.float, device=device, requires_grad=False)
+    res[torch.sigmoid(logit) >= threshold] = 1
+    return res

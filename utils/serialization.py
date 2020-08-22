@@ -6,8 +6,8 @@ import pickle
 
 import torch
 
-from model.model import MultiGenreLabeler
-from model.parameters import ModelParameters
+from nn_model.model import MultiGenreLabeler
+from nn_model.parameters import ModelParameters
 from utils.helpers import ensure_ending
 
 
@@ -49,27 +49,23 @@ def save_pickle(file, path, filename):
 
 
 def save_model(model, path, filename):
-    """
-
-    :param model:
-    :param path:
-    :param filename:
-    :return:
-    """
     filename = filename if ensure_ending(filename) else f"{filename}.pth"
     torch.save(model.state_dict(), path / filename)
 
 
 def load_model(path, filename, device):
     """
-    Returns trained model and metadata. The function assumes that they are in the same file path and are named:
+    Returns trained nn_model and metadata. The function assumes that they are in the same file path and are named:
         metadata - <filename>_metadata.pkl
-        model - <filename>.pth
+        nn_model - <filename>.pth
     :param path:
     :param filename:
     :param device:
     :return:
     """
+    print('*'*10)
+    print('-- Loading Model & Metadata --')
+    print('*'*10)
     print('--Loading metadata --')
     metadata_filename = f'{filename}_metadata.pkl'
     metadata = load_pickle(path, metadata_filename)
@@ -77,7 +73,7 @@ def load_model(path, filename, device):
     for param, param_value in metadata['parameters'].items():
         print(f'-- {param}: {param_value}')
     params = ModelParameters(**metadata['parameters'])
-    print('--Loading model --')
+    print('--Loading nn_model --')
     model = MultiGenreLabeler(params)
     filename = filename if ensure_ending(filename) else f"{filename}.pth"
     model.load_state_dict(torch.load(path / filename,

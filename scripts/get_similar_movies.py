@@ -1,5 +1,6 @@
 """
-
+Script for calculating the N-most similar movies by calculating the similarity between movie plot summaries of a
+given movie to other movies
 """
 import argparse
 from pathlib import Path
@@ -11,6 +12,17 @@ from utils.serialization import load_json, load_model
 
 
 def get_similar_movies(model_path, data_path, model_filename, movie_name, N, similarity_type='cosine'):
+    """
+    Returns the N most similar movie
+    :param Path model_path:
+    :param Path data_path:
+    :param str model_filename: name of trained model
+    :param str movie_name:
+    :param int N: number of top similar movies to return
+    :param str similarity_type: method to calculate similarity between 2 vectors (options are: 'cosine', 'distance',
+    'dot')
+    :return:
+    """
     device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
     model, metadata = load_model(model_path, model_filename, device)
     embeddings = load_json(data_path, 'embeddings.json')
@@ -24,12 +36,12 @@ def get_similar_movies(model_path, data_path, model_filename, movie_name, N, sim
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Script for calculating the N most similar movies to a given movie",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-mp', '--model_path', help='Path to model directory', type=Path
+    parser.add_argument('-mp', '--model_path', help='Path to nn_model directory', type=Path
                         , default=Path.cwd().parent / 'trained_models')
     parser.add_argument('-dp', '--data_path', help='Path to data', type=Path
                         , default=Path.cwd().parent / 'data')
     parser.add_argument('-fn', '--filename',
-                        help='model filename', type=str, default='genre_classifier')
+                        help='nn_model filename', type=str, default='genre_classifier')
     parser.add_argument('-mn', '--movie_name',
                         help='Name of movie. Note: needs to be between double quotes "" ', type=str, required=True)
     parser.add_argument('-n', '--N',

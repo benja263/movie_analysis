@@ -1,3 +1,7 @@
+"""
+Script for extracting and saving locally embeddings of plot summaries to be used for calculating the similarity
+between movie plots
+"""
 import argparse
 import json
 from pathlib import Path
@@ -48,14 +52,14 @@ def get_embeddings(model_path, data_path, model_filename):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Script for getting embeddings of movie plots",
+    parser = argparse.ArgumentParser(description="Script for extracting embeddings of movie plot summaries",
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-mp', '--model_path', help='Path to model directory', type=Path
+    parser.add_argument('-mp', '--model_path', help='Path to nn_model directory', type=Path
                         , default=Path.cwd() / 'trained_models')
     parser.add_argument('-dp', '--data_path', help='Path to data', type=Path
                         , default=Path.cwd() / 'data')
     parser.add_argument('-fn', '--filename',
-                        help='model filename', type=str, default='genre_classifier')
+                        help='nn_model filename', type=str, default='movie_genre_labeler')
     args = parser.parse_args()
 
     get_embeddings(model_path=args.model_path, data_path=args.data_path, model_filename=args.filename)

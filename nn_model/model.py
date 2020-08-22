@@ -1,6 +1,7 @@
 """
-Module for multi-label genre classification by training a neural net model that has an
- added logit output layer to a pretrained BERT model
+Module containing a neural net model structure based on pretrained BERT with an added logit output layer for
+ multi-label classification
+
 """
 from torch import nn
 from transformers import BertModel
@@ -15,7 +16,6 @@ class MultiGenreLabeler(nn.Module):
 
     def forward(self, input_ids, attention_mask):
         """
-        Returns logit of genres
         :param torch.tensor input_ids:
         :param torch.tensor attention_mask: 1 for text-token, 0 for padded-token
         :return:

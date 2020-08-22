@@ -1,5 +1,5 @@
 """
-Module for converting movie information data from csv to pytorch Dataset suitable for training a pytorch model
+Module for converting movie information data from csv to pytorch Dataset suitable for training a pytorch nn_model
 """
 import numpy as np
 import torch
@@ -12,11 +12,11 @@ class GenresDataset(Dataset):
     def __init__(self, plot_summaries, genres, mapping, tokenizer, max_len):
         """
 
-        :param plot_summaries:
-        :param list(int) genres:
-        :param mapping:
-        :param tokenizer:
-        :param max_len:
+        :param list(str) plot_summaries: list of movie plot summaries
+        :param list(list(str)) genres: list containing a list of movie genres per movie
+        :param dict mapping: genre to index mapping
+        :param BertTokenizer tokenizer: pre-trained bert tokenizer
+        :param int max_len: maximum encoding length (bert max is 512)
         """
         self.plot_summaries = plot_summaries
         self.genres = genres
@@ -42,15 +42,15 @@ class GenresDataset(Dataset):
 
 def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_col, genre_col, num_workers):
     """
-
-    :param df:
-    :param mapping:
-    :param tokenizer:
-    :param max_len:
-    :param batch_size:
-    :param plot_col:
-    :param genre_col:
-    :param num_workers:
+    Returns DataLoader for a GenresDataset instance
+    :param pd.DataFrame df: DataFrame containing plot summaries and genres
+    :param dict mapping: genre to index mapping
+    :param BertTokenizer tokenizer: pre-trained bert tokenizer
+    :param int max_len: maximum encoding length (bert max is 512)
+    :param int batch_size: number of samples per batch
+    :param str plot_col: plot summaries column name in df
+    :param str genre_col: genres column name in df
+    :param int num_workers: number of processes that generate batches in parallel
     :return:
     """
     df.loc[:, genre_col] = df[genre_col].apply(list_from_yaml)
@@ -61,9 +61,9 @@ def create_genres_data_loader(df, mapping, tokenizer, max_len, batch_size, plot_
 
 def encode_ids(genres_lists, mapping):
     """
-    Returns 1-hot encodings of genres
+    Returns multi-label 1-hot encodings of genres
     :param list(str) genres_lists: list of genres
-    :param dict mapping: mapping between genre to index
+    :param dict mapping: genre to index mapping
     :return:
     """
     nb_genres = len(mapping)
