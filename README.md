@@ -71,10 +71,13 @@ A pre-trained BERT model with an added output layer was trained on googlecolab u
 - logistic regression - F1 score = 0.42
 - SVM - F1 score = 0.44
 - BERT - F1 score = 0.54
-The code for logistic regression and SVM can be found in a jupyter notebook called: `movie_analysis.ipynb`.
+## Code Structure
+-`movie_analysis.ipynb` - jupyter notebook containing the code used for training logistic regression and SVM classifiers
+- `bert_model` - modules used for training a pytorch model
+- `scripts` - scripts used for pre-processing/training/predicting
+- `utils` - helper function and utils 
+- `movie_classifier.py` - class used for predicting similar movies and genres
 
-### Similarity
-####
 
 
 
