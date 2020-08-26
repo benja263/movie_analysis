@@ -21,9 +21,9 @@ def confusion_matrix(predictions, targets, is_torch=False):
     return tp, tn, fp, fn
 
 
-def classifcation_metrics(tp, tn, fp, fn):
+def classification_metrics(tp, tn, fp, fn):
     """
-    Return classifcation metrics: precision, recall, accuracy and F1 score as a dictionary
+    Return classification metrics: precision, recall, accuracy and F1 score as a dictionary
     :param float tp: true positive
     :param float tn: true negative
     :param float fp: false positive

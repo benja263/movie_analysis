@@ -1,5 +1,5 @@
 """
-Module for converting movie information data from csv to pytorch Dataset suitable for training a pytorch nn_model
+Module for converting movie information data from csv to pytorch Dataset suitable for training a pytorch model
 """
 import numpy as np
 import torch
@@ -69,9 +69,9 @@ def encode_ids(genres_lists, mapping):
     nb_genres = len(mapping)
     encoding_list = []
     for genres_list in genres_lists:
+        genre_indices = [mapping[genre] for genre in genres_list]
         encoding = np.zeros(nb_genres, dtype=int)
-        for genre in genres_list:
-            encoding[mapping[genre]] = 1
+        encoding[genre_indices] = 1
         encoding_list.append(encoding)
     return encoding_list
 

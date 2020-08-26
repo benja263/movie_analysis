@@ -12,12 +12,12 @@ import torch
 from sklearn.model_selection import train_test_split
 from transformers import AdamW, get_linear_schedule_with_warmup, BertTokenizer
 
-from nn_model.genres_dataset import create_genres_data_loader
-from nn_model.model import MultiGenreLabeler
-from nn_model.parameters import ModelParameters
+from bert_model.genres_dataset import create_genres_data_loader
+from bert_model.model import MultiGenreLabeler
+from bert_model.parameters import ModelParameters
 from utils.helpers import passed_time, save_data
 from utils.serialization import load_json, save_pickle, save_model, load_model
-from utils.metrics import confusion_matrix, classifcation_metrics
+from utils.metrics import confusion_matrix, classification_metrics
 
 
 def train_model(path, output_dir, filename, params, continue_training):
@@ -59,6 +59,7 @@ def train_model(path, output_dir, filename, params, continue_training):
 
     metadata = {'tokenizer': tokenizer,
                 'genre_mapping': mapping,
+                'model_type': 'torch',
                 'parameters':  attr.asdict(params)}
     training(filename, output_dir, data_loaders, params, continue_training, metadata)
 
@@ -74,13 +75,13 @@ def get_data_loaders(data, mapping, tokenizer, params):
     """
     train_data, val_data, test_data = data
     train_data_loader = create_genres_data_loader(train_data, mapping, tokenizer, params.max_encoding_length,
-                                                  params.batch_size, plot_col='plot_summary', genre_col='genres',
+                                                  params.batch_size, plot_col='plot_summary', genre_col='movie_genres',
                                                   num_workers=params.num_workers)
     val_data_loader = create_genres_data_loader(val_data, mapping, tokenizer, params.max_encoding_length,
-                                                params.batch_size, plot_col='plot_summary', genre_col='genres',
+                                                params.batch_size, plot_col='plot_summary', genre_col='movie_genres',
                                                 num_workers=params.num_workers)
     test_data_loader = create_genres_data_loader(test_data, mapping, tokenizer, params.max_encoding_length,
-                                                 params.batch_size, plot_col='plot_summary', genre_col='genres',
+                                                 params.batch_size, plot_col='plot_summary', genre_col='movie_genres',
                                                  num_workers=params.num_workers)
     return {'train': train_data_loader, 'validation': val_data_loader, 'test': test_data_loader}
 
@@ -101,7 +102,7 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
     model, metadata = load_model(output_dir, filename, device) if continue_training else initialize_model(metadata,
                                                                                                           params,
                                                                                                           device)
-    optimizer = AdamW(model.parameters(), lr=params.learning_rate, correct_bias=False)
+    optimizer = AdamW(params=model.parameters(), lr=params.learning_rate, correct_bias=False)
     lr_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=0,
                                                    num_training_steps=len(data_loader['train']) * params.n_epochs)
     loss_fn = torch.nn.BCEWithLogitsLoss().to(device)
@@ -109,7 +110,7 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
     best_f1 = max(metadata['history']['val_f1']) if continue_training else 0.0
     print(f'Continuing training: best f1 score: {best_f1:.5f}') if continue_training else print('Starting training')
 
-    model_info = {'nn_model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler, 'device': device,
+    model_info = {'model': model, 'optimizer': optimizer, 'lr_scheduler': lr_scheduler, 'device': device,
                   'loss_fn': loss_fn}
     start_time = time.time()
     for i in range(start_epoch, start_epoch + params.n_epochs):
@@ -125,9 +126,9 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
         print('-' * 10)
         if val_metrics['f1'] > best_f1:
             best_f1 = val_metrics['f1']
-            print('-- Saving nn_model --')
+            print('-- Saving bert_model --')
             save_model(model, output_dir, filename)
-        print('-- Saving nn_model history --')
+        print('-- Saving bert_model history --')
         metadata['history']['epoch'].append(i)
         metadata['history'] = append_history(metadata['history'], **tr_metrics, metric_type='tr')
         metadata['history'] = append_history(metadata['history'], **val_metrics, metric_type='val')
@@ -139,7 +140,7 @@ def training(filename, output_dir, data_loader, params, continue_training, metad
     print('-- Test metrics-')
     print_metrics(test_metrics)
     metadata['history'] = append_history(metadata['history'], **test_metrics, metric_type='test')
-    print('-- Saving nn_model history --')
+    print('-- Saving bert_model history --')
     save_pickle(metadata, output_dir, f'{filename}_metadata')
     print(f'Total training time: {passed_time(time.time() - start_time)}')
 
@@ -182,7 +183,7 @@ def train_epoch(model, data_loader, device, optimizer, loss_fn, lr_scheduler):
         optimizer.step()
         lr_scheduler.step()
         tp, tn, fp, fn = conf_matrix
-        batch_metrics = classifcation_metrics(tp.item(), tn.item(), fp.item(), fn.item())
+        batch_metrics = classification_metrics(tp.item(), tn.item(), fp.item(), fn.item())
         batch_metrics['loss'] = batch_loss.item()
         for metric, metric_value in batch_metrics.items():
             mean_metrics[metric] += metric_value
@@ -208,7 +209,7 @@ def eval_model(model, data_loader, loss_fn, device):
         for batch in data_loader:
             conf_matrix, batch_loss = epoch_pass(batch, model, loss_fn, device)
             tp, tn, fp, fn = conf_matrix
-            batch_metrics = classifcation_metrics(tp.item(), tn.item(), fp.item(), fn.item())
+            batch_metrics = classification_metrics(tp.item(), tn.item(), fp.item(), fn.item())
             batch_metrics['loss'] = batch_loss.item()
             for metric, metric_value in batch_metrics.items():
                 mean_metrics[metric] += metric_value
@@ -233,56 +234,6 @@ def epoch_pass(batch, model, loss_fn, device):
     batch_logits = model(input_ids, attention_mask)
     predictions = binary_labeling(batch_logits, threshold=0.5, device=device)
     return confusion_matrix(predictions, targets, is_torch=True), loss_fn(batch_logits, targets)
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Script for training a nn_model for genre labeling",
-                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('-p', '--path', help='Path to data directory', type=Path
-                        , default=Path.cwd() / 'data')
-    parser.add_argument('-o', '--output_dir', help='Path to directory in which to save/load results to/from', type=Path
-                        , default=Path.cwd() / 'trained_models')
-    parser.add_argument('-ct', '--continue_training',
-                        help='Continue training from trained nn_model', action='store_true')
-    parser.add_argument('-fn', '--filename',
-                        help='Name to save/load nn_model,'
-                             ' NOTE: .pth ending is added', type=str, default='genre_classifier')
-    parser.add_argument('-ptmn', '--pre_trained_model_name',
-                        help='name of pre_trained_name', type=str, default='bert-base-cased')
-    parser.add_argument('-drp', '--dropout',
-                        help='Dropout', type=float, default=0.3)
-    parser.add_argument('-menln', '--max_encoding_length',
-                        help='Max length of encoding tensor -- note 512 is the max allowed number ', type=int,
-                        default=512)
-    parser.add_argument('-bsz', '--batch_size',
-                        help='Batch size', type=int, default=8)
-    parser.add_argument('-ne', '--n_epochs',
-                        help='Number of training epochs', type=int, default=10)
-    parser.add_argument('-trs', '--train_split',
-                        help='Ratio of training / test split', type=float, default=0.8)
-    parser.add_argument('-ves', '--validation_split',
-                        help='Ratio of validation / test split', type=float, default=0.5)
-    parser.add_argument('-rs', '--random_state',
-                        help='seed', type=int, default=42)
-    parser.add_argument('-lr', '--learning_rate',
-                        help='Optimizer learning rate', type=float, default=2e-5)
-    parser.add_argument('-nm', '--num_workers',
-                        help='How many subprocesses to use for data loading', type=int, default=4)
-
-    args = parser.parse_args()
-    if not args.output_dir.exists():
-        args.output_dir.mkdir(parents=True)
-    print('-- Entered Arguments --')
-    for arg in vars(args):
-        print(f'- {arg}: {getattr(args, arg)}')
-    parameters = ModelParameters(pre_trained_model_name=args.pre_trained_model_name,
-                                 max_encoding_length=max(512, args.max_encoding_length), dropout=args.dropout,
-                                 batch_size=args.batch_size, n_epochs=args.n_epochs, train_split=args.train_split,
-                                 validation_split=args.validation_split, random_state=args.random_state,
-                                 learning_rate=args.learning_rate,
-                                 num_workers=args.num_workers)
-    train_model(path=args.path, filename=args.filename, params=parameters,
-                continue_training=args.continue_training, output_dir=args.output_dir)
 
 
 def append_history(history_dict, accuracy, precision, recall, f1, loss, metric_type):
@@ -327,3 +278,53 @@ def binary_labeling(logit, threshold, device):
     res = torch.zeros(size=tuple(logit.size()), dtype=torch.float, device=device, requires_grad=False)
     res[torch.sigmoid(logit) >= threshold] = 1
     return res
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser(description="Script for training a bert_model for genre labeling",
+                                     formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('-p', '--path', help='Path to data directory', type=Path
+                        , default=Path.cwd() / 'data')
+    parser.add_argument('-o', '--output_dir', help='Path to directory in which to save/load results to/from', type=Path
+                        , default=Path.cwd() / 'trained_models')
+    parser.add_argument('-ct', '--continue_training',
+                        help='Continue training from trained bert_model', action='store_true')
+    parser.add_argument('-fn', '--filename',
+                        help='Name to save/load bert_model,'
+                             ' NOTE: .pth ending is added', type=str, default='genre_classifier')
+    parser.add_argument('-ptmn', '--pre_trained_model_name',
+                        help='name of pre_trained_name', type=str, default='bert-base-cased')
+    parser.add_argument('-drp', '--dropout',
+                        help='Dropout', type=float, default=0.3)
+    parser.add_argument('-menln', '--max_encoding_length',
+                        help='Max length of encoding tensor -- note 512 is the max allowed number ', type=int,
+                        default=512)
+    parser.add_argument('-bsz', '--batch_size',
+                        help='Batch size', type=int, default=8)
+    parser.add_argument('-ne', '--n_epochs',
+                        help='Number of training epochs', type=int, default=10)
+    parser.add_argument('-trs', '--train_split',
+                        help='Ratio of training / test split', type=float, default=0.8)
+    parser.add_argument('-ves', '--validation_split',
+                        help='Ratio of validation / test split', type=float, default=0.5)
+    parser.add_argument('-rs', '--random_state',
+                        help='seed', type=int, default=42)
+    parser.add_argument('-lr', '--learning_rate',
+                        help='Optimizer learning rate', type=float, default=3e-5)
+    parser.add_argument('-nm', '--num_workers',
+                        help='How many subprocesses to use for data loading', type=int, default=4)
+
+    args = parser.parse_args()
+    if not args.output_dir.exists():
+        args.output_dir.mkdir(parents=True)
+    print('-- Entered Arguments --')
+    for arg in vars(args):
+        print(f'- {arg}: {getattr(args, arg)}')
+    parameters = ModelParameters(pre_trained_model_name=args.pre_trained_model_name,
+                                 max_encoding_length=max(512, args.max_encoding_length), dropout=args.dropout,
+                                 batch_size=args.batch_size, n_epochs=args.n_epochs, train_split=args.train_split,
+                                 validation_split=args.validation_split, random_state=args.random_state,
+                                 learning_rate=args.learning_rate, num_workers=args.num_workers)
+    train_model(path=args.path, filename=args.filename, params=parameters,
+                continue_training=args.continue_training, output_dir=args.output_dir)
+

@@ -5,6 +5,8 @@ import torch
 
 from utils.helpers import A_minus_intersection
 from utils.vector_similarities import cosine_similarity, euclidean_distance, dot_product
+from utils.text_cleaning import clean_plot_summary, remove_stopwords
+from sklearn.linear_model import LogisticRegression
 
 SIMILARITY_FUNC = {'cosine': cosine_similarity, 'distance': euclidean_distance, 'dot': dot_product}
 
@@ -28,26 +30,40 @@ class MovieClassifier:
         :param str plot_summary:
         :return:
         """
-        encoding = self.metadata['tokenizer'].encode_plus(plot_summary, add_special_tokens=True,
-                                                          max_length=self.metadata['parameters']['max_encoding_length'],
-                                                          return_token_type_ids=False, pad_to_max_length=True,
-                                                          return_attention_mask=True, return_tensors='pt',
-                                                          truncation=True)
-        input_ids, attention_mask = encoding['input_ids'].to(self.device), encoding['attention_mask'].to(self.device)
-        probabilities = torch.sigmoid(self.model(input_ids, attention_mask)).flatten()
-        probability_mapping = {i: probabilities[i].item() for i in range(len(probabilities))}
+        plot_summary = clean_plot_summary(plot_summary, to_print=True)
+        if self.metadata['model_type'] == 'torch':
+            encoding = self.metadata['tokenizer'].encode_plus(plot_summary, add_special_tokens=True,
+                                                              max_length=self.metadata['parameters']['max_encoding_length'],
+                                                              return_token_type_ids=False, pad_to_max_length=True,
+                                                              return_attention_mask=True, return_tensors='pt',
+                                                              truncation=True)
+            input_ids, attention_mask = encoding['input_ids'].to(self.device), encoding['attention_mask'].to(self.device)
+            probabilities = torch.sigmoid(self.model(input_ids, attention_mask)).flatten()
+            probability_mapping = {i: probabilities[i].item() for i in range(len(probabilities))}
+        elif self.metadata['model_type'] == 'sklearn':
+            estimator_func = self.model.predict
+            if isinstance(self.model.estimator, LogisticRegression):
+                estimator_func = self.model.predict_proba
+            plot_summary = remove_stopwords([plot_summary], stopwords=self.metadata['stopwords'],
+                                            stemmer=self.metadata['stemmer'])
+            encoding = self.metadata['tfidf'].transform([plot_summary]).toarray()
+            probabilities = estimator_func(encoding).squeeze()
+            probability_mapping = {i: probabilities[i] for i in range(len(probabilities))}
         return {self.reverse_mapping[k]: v for k, v in sorted(probability_mapping.items(), key=lambda item: item[1],
                                                               reverse=True)}
 
-    def calculate_similarities(self, movie_name, similarity_type):
+    def calculate_similarities(self, movie_name, plot_summary, similarity_type):
         """
         Calculates similarity scores
         :param str movie_name:
         :param str similarity_type: similarity score method ['cosine', 'dot', 'distance']
         :return:
         """
+
         embeddings = self.embeddings
-        if movie_name not in self.similarity_cache.keys() and movie_name in embeddings.keys():
+        if movie_name not in embeddings.keys():
+            self.embeddings[movie_name] = self.get_embedding(plot_summary)
+        if movie_name not in self.similarity_cache.keys():
             similarity_dict = dict()
             movie_embedding = embeddings.get(movie_name, None)
             movie_names = A_minus_intersection(set(embeddings.keys()), {movie_name})
@@ -58,7 +74,7 @@ class MovieClassifier:
             self.similarity_cache[movie_name] = {k: v for k, v in sorted(similarity_dict.items(), key=lambda item: item[1],
                                                  reverse=True if similarity_type != 'distance' else False)}
 
-    def get_n_most_similar(self, movie_name, N, similarity_type='cosine'):
+    def get_n_most_similar(self, movie_name, plot_summary, N, similarity_type='cosine'):
         """
         Return N-most similar movies for a given movie name
         :param str movie_name:
@@ -67,6 +83,24 @@ class MovieClassifier:
         :return:
         """
         if movie_name not in self.similarity_cache.keys():
-            self.calculate_similarities(movie_name, similarity_type)
+            self.calculate_similarities(movie_name, plot_summary, similarity_type)
         similarities = self.similarity_cache[movie_name]
         return {k: similarities[k] for k in list(similarities.keys())[:N]}
+
+    def get_embedding(self, plot_summary):
+        """
+
+        :param plot_summary:
+        :return:
+        """
+        self.model.eval()
+        with torch.no_grad():
+            encoding = self.metadata['tokenizer'].encode_plus(plot_summary, add_special_tokens=True,
+                                                         max_length=self.metadata['parameters'][
+                                                             'max_encoding_length'],
+                                                         return_token_type_ids=False, pad_to_max_length=True,
+                                                         return_attention_mask=True, return_tensors='pt',
+                                                         truncation=True)
+            input_ids, attention_mask = encoding['input_ids'].to(self.device), encoding['attention_mask'].to(self.device)
+            embedding = self.model.extract_embedding(input_ids, attention_mask).flatten()
+        return embedding.tolist()

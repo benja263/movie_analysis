@@ -1,9 +1,7 @@
 """
 Module containing helper functions
 """
-import re
 
-import numpy as np
 import yaml
 
 
@@ -56,29 +54,10 @@ def ensure_ending(filename):
     return False
 
 
-def clean_plot_summary(plot_summary):
+def list_from_yaml(list_representation):
     """
-    Returns a cleaned plot summary
-    :param str plot_summary:
+    Convert a string representation of a list to a list
+    :param str list_representation:
     :return:
     """
-    try:
-        # remove '{{word}}' or '{{text>'
-        x = re.sub(r'\s*{{.+?(\}{2}|\>)\s?', '', str(plot_summary))
-        # remove links
-        x = re.sub(r'http(s?)://\S*\s*', '', x)
-        # remove punctuation
-        x = re.sub(r'[\?\.\,\;\:\"\(\)\{\}\[\]\\\/]', ' ', x)
-        # remove double space
-        x = re.sub(r'\s+', ' ', x)
-        # remove \' that is not in middle of a word)
-        x = re.sub(r'\'(\w+)\'', r'\1', x)
-        if not x:
-            return np.nan
-        return x
-    except:
-        return np.nan
-
-
-def list_from_yaml(list_representation):
     return yaml.load(list_representation, Loader=yaml.BaseLoader)

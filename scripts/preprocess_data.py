@@ -6,7 +6,7 @@ import csv
 import json
 from pathlib import Path
 from collections import defaultdict
-from utils.helpers import clean_plot_summary
+from utils.text_cleaning import clean_plot_summary
 from utils.serialization import save_json
 
 import numpy as np
@@ -15,7 +15,7 @@ import pandas as pd
 MOVIE_METADATA_COLUMNS = {0: 'wikipedia_movie_id', 1: 'freebase_movie_id', 2: 'movie_name', 3: 'movie_release_date',
                           4: 'movie_box_office_revenue', 5: 'movie_runtime', 6: 'movie_languages', 7: 'movie_countries',
                           8: 'movie_genres'}
-MINIMUM_NUMBER_OF_APPEARANCE = 200
+MINIMUM_NUMBER_OF_APPEARANCE = 500
 
 
 def preprocess_data(path):
@@ -29,8 +29,8 @@ def preprocess_data(path):
     """
     movie_data = load_data(path)
     print('Preprocessing movie data')
-    movie_data, genre_mapping = pre_process_movie_data(movie_data)
-    print_metadata(movie_data, genre_mapping)
+    movie_data, genre_mapping, unique_genre_count = pre_process_movie_data(movie_data)
+    print_metadata(movie_data, genre_mapping, unique_genre_count)
 
     print('-- Saving --')
     save_plot_summaries_name = path / 'plot_summaries.json'
@@ -53,7 +53,7 @@ def load_data(path):
     # load movie metadata
     movie_metadata = pd.read_csv(path / 'movie.metadata.tsv', sep='\t', header=None).rename(
         columns=MOVIE_METADATA_COLUMNS)
-    movie_metadata['wikipedia_movie_id'] = movie_metadata['wikipedia_movie_id'].astype(int)
+    movie_metadata.loc[:, 'wikipedia_movie_id'] = movie_metadata['wikipedia_movie_id'].astype(int)
     # load plot summaries
     movie_id_mapping = dict()
     with open(path / "plot_summaries.txt", 'r') as f:
@@ -81,32 +81,52 @@ def pre_process_movie_data(df):
 
     movies_data = dict()
     unique_genre_count = defaultdict(lambda: 0)
+    df.loc[:, 'movie_genres'] = df['movie_genres'].apply(pre_process_genres)
+    df = df.dropna(subset=['movie_genres'])
+    for genres in df['movie_genres'].to_numpy():
+        for genre in genres:
+            unique_genre_count[genre] += 1
     print('Finding unique genres')
-    for row_number, (movie_id, row) in enumerate(df.iterrows(), start=0):
-        movie_genres = json.loads(row['movie_genres'])
-        genre_dict = np.nan
-        if movie_genres:
-            genre_values = list(movie_genres.values())
-            for genre in genre_values:
-                unique_genre_count[genre] += 1
-        plot = row['plot_summary']
-        movie_name = row['movie_name']
-        movies_data[row_number] = {'movie_name': movie_name, 'plot_summary': plot, 'genres': genre_values}
-    movies_data = pd.DataFrame.from_dict(movies_data, orient='index').dropna()
-    print(f'Only keepnig genres that appear at least {MINIMUM_NUMBER_OF_APPEARANCE} times in {len(movies_data)} movies')
+    print(f'Only keeping genres that appear at least {MINIMUM_NUMBER_OF_APPEARANCE} times in {len(df)} movies')
     accepted_genres = set([genre for genre, genre_count in unique_genre_count.items() if genre_count >= MINIMUM_NUMBER_OF_APPEARANCE])
-    movies_data.loc[:, 'genres'] = movies_data['genres'].apply(lambda x: list(set(x).intersection(accepted_genres)))
+    df.loc[:, 'movie_genres'] = df['movie_genres'].apply(keep_accepted_genres, accepted_genres=accepted_genres)
+    df = df.dropna(subset=['movie_genres'])
     genre_mapping = {genre: ind for ind, genre in enumerate(accepted_genres)}
-    return movies_data.set_index('movie_name'), genre_mapping
+    # sort unique_genre_count
+    unique_genre_count = {k: v for k, v in sorted(unique_genre_count.items(), key=lambda item: item[1], reverse=True) if k in accepted_genres}
+    return df.set_index('movie_name'), genre_mapping, unique_genre_count
+
+def pre_process_genres(genres):
+    """
+    Returns set of genres after converting to lower case and removing the word " film".
+    Example: - "Comedy" and "Comedy film" will turn into one genre
+    :param genres:
+    :return:
+    """
+    # all genres to lower case
+    genres = list(json.loads(genres).values())
+    processed_genres = set([genre.lower().replace(' film', '') for genre in genres])
+    return processed_genres if processed_genres else np.nan
+
+def keep_accepted_genres(genres, accepted_genres):
+    """
+    Returns genres that intersect accepted genres
+    :param set(str) genres:
+    :param set(str) accepted_genres:
+    :return:
+    """
+    # all genres to lower case
+    genres = list(genres.intersection(accepted_genres))
+    return genres if genres else np.nan
 
 
-def print_metadata(df, mapping):
+def print_metadata(df, mapping, unique_genre_count):
     """
     Print statistics of movie data
     """
     temp = df.copy()
     temp.loc[:, 'word_count'] = temp['plot_summary'].apply(lambda x: len(x.split()))
-    temp.loc[:, 'genre_count'] = temp['genres'].apply(lambda x: len(x))
+    temp.loc[:, 'genre_count'] = temp['movie_genres'].apply(lambda x: len(x))
     word_stats, word_stats_quantiles = temp.word_count.describe(), temp.word_count.quantile(q=[0.9, 0.95, 0.99])
     genre_stats = temp.genre_count.describe()
     print('-' * 10)
@@ -120,6 +140,11 @@ def print_metadata(df, mapping):
           f" max: {word_stats['max']:.0f}")
     print(f"Genre count per movie - min: {genre_stats['min']:.0f}, mean: {genre_stats['mean']:.2f}, "
           f"std: {genre_stats['std']:.2f}, median: {genre_stats['50%']:.0f},  max: {genre_stats['max']:.0f}")
+    print('-' * 10)
+    print('Unique Genre Count')
+    print('-' * 10)
+    for ind, (genre, genre_count) in enumerate(unique_genre_count.items(), start=1):
+        print(f'{ind}) {genre}: {genre_count}')
     print('-' * 10)
 
 def plot_summaries_to_json(path, df):

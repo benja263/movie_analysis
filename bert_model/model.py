@@ -1,7 +1,6 @@
 """
 Module containing a neural net model structure based on pretrained BERT with an added logit output layer for
  multi-label classification
-
 """
 from torch import nn
 from transformers import BertModel
