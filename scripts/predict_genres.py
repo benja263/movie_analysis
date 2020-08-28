@@ -6,7 +6,7 @@ from pathlib import Path
 
 import torch
 
-from movie_classifier import MovieClassifier
+from movie_labeler.movie_genre_labeler import MovieGenreLabeler
 from utils.text_cleaning import clean_plot_summary
 from utils.serialization import load_model
 
@@ -24,8 +24,8 @@ def predict_genres(path, filename, plot_summary):
         device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         model, metadata = load_model(path, filename, device)
 
-        movie_classifier = MovieClassifier(model, metadata, device, embeddings=None)
-        prediction = movie_classifier.predict_genre_by_plot(plot_summary)
+        movie_labeler = MovieGenreLabeler(model, metadata, device, embeddings=None)
+        prediction = movie_labeler.predict_genre_by_plot(plot_summary)
         print('-- Likely genres --')
         for ind, genre in enumerate(prediction.keys(), start=1):
             probability = prediction[genre]

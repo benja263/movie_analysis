@@ -7,7 +7,7 @@ from pathlib import Path
 
 import torch
 
-from movie_classifier import MovieClassifier
+from movie_labeler.movie_genre_labeler import MovieGenreLabeler
 from utils.serialization import load_json, load_model
 
 
@@ -26,8 +26,8 @@ def get_similar_movies(path, model_filename, movie_name, plot_summary, N, simila
     model, metadata = load_model(path, model_filename, device)
     embeddings = load_json(path, f"{metadata['model_type']}_embeddings.json")
 
-    movie_classifier = MovieClassifier(model, metadata, device, embeddings)
-    most_similar_movies = movie_classifier.get_n_most_similar(movie_name,plot_summary, N, similarity_type)
+    movie_labeler = MovieGenreLabeler(model, metadata, device, embeddings)
+    most_similar_movies = movie_labeler.get_n_most_similar(movie_name,plot_summary, N, similarity_type)
     for ind, (similar_movie_name, similarity) in enumerate(most_similar_movies.items(), start=1):
         print(f'{ind}) - {similar_movie_name}, similarity score: {similarity:.2f}')
 

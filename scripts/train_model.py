@@ -1,5 +1,5 @@
 """
-Module for training a neural network model
+Module for training a BERT model
 """
 import argparse
 import time

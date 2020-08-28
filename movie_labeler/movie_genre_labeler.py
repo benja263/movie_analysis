@@ -1,5 +1,5 @@
 """
-Module for predicting movie genres calculating similarities of a given movie
+Module for predicting movie genres and calculating similarities of a given movie
 """
 import torch
 
@@ -11,7 +11,7 @@ from sklearn.linear_model import LogisticRegression
 SIMILARITY_FUNC = {'cosine': cosine_similarity, 'distance': euclidean_distance, 'dot': dot_product}
 
 
-class MovieClassifier:
+class MovieGenreLabeler:
     """
     Class for predicting movie genres by plot summaries and finding the N-most similar movies
     """
@@ -56,13 +56,14 @@ class MovieClassifier:
         """
         Calculates similarity scores
         :param str movie_name:
+        :param str plot_summary:
         :param str similarity_type: similarity score method ['cosine', 'dot', 'distance']
         :return:
         """
 
         embeddings = self.embeddings
         if movie_name not in embeddings.keys():
-            self.embeddings[movie_name] = self.get_embedding(plot_summary)
+            self.embeddings[movie_name] = self.get_bert_embedding(plot_summary)
         if movie_name not in self.similarity_cache.keys():
             similarity_dict = dict()
             movie_embedding = embeddings.get(movie_name, None)
@@ -87,10 +88,10 @@ class MovieClassifier:
         similarities = self.similarity_cache[movie_name]
         return {k: similarities[k] for k in list(similarities.keys())[:N]}
 
-    def get_embedding(self, plot_summary):
+    def get_bert_embedding(self, plot_summary):
         """
 
-        :param plot_summary:
+        :param str plot_summary:
         :return:
         """
         self.model.eval()
